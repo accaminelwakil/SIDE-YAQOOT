@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // قواعد حماية قاعدة بيانات منظومة عيادات سيدي ياقوت التخصصية
+    match /sidi_yaqout_erp/{document=**} {
+      // للسماح للمنظومة بالقراءة والكتابة
+      allow read, write: if true;
+    }
+  }
+}

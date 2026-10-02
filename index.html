@@ -1,0 +1,2323 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>منظومة إدارة رواتب عيادات سيدى ياقوت التخصصية</title>
+    <!-- Firebase SDK Scripts (Compat versions for client-side web integration) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <!-- Library for direct PDF generation and export (Local offline bundle with CDN fallback) -->
+    <script src="html2pdf.bundle.min.js"></script>
+    <script>
+        if (typeof html2pdf === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\/script>');
+        }
+    </script>
+    <meta name="theme-color" content="#990012">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="عيادات سيدي ياقوت">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/splash.css">
+</head>
+<body>
+
+<!-- ==================== SPLASH SCREEN / شاشة التحميل الترحيبية ==================== -->
+<div id="clinic-splash-screen" class="clinic-splash-screen">
+    <div class="splash-ambient-aura"></div>
+    <div class="splash-ambient-grid"></div>
+    
+    <button type="button" class="splash-skip-btn" onclick="dismissSplashScreen(true)" title="تخطي شاشة البداية والدخول فوراً">
+        تخطي ✕
+    </button>
+    
+    <div class="splash-center-content">
+        <!-- حاوية اللوجو الأصلي لعيادات سيدي ياقوت التخصصية -->
+        <div class="splash-logo-container" id="splash-logo-box">
+            <div class="splash-logo-card">
+                <img src="assets/sidi-yaqout-logo-transparent.png" alt="عيادات سيدي ياقوت التخصصية" class="splash-logo-img" />
+            </div>
+        </div>
+
+        <!-- حاوية السلوجن: يطير ويعبر الشاشة ثم يستقر ويثبت تماماً أسفل اللوجو -->
+        <div class="splash-slogan-flight-track" id="splash-slogan-track">
+            <div class="splash-slogan-box" id="splash-slogan-element">
+                <img src="assets/sidi-yaqout-slogan-transparent.png" alt="365 يوم من الرعاية الطبية المتكاملة" class="splash-slogan-img" />
+            </div>
+        </div>
+
+        <!-- شريط النبض الطبي ومؤشر التحميل -->
+        <div class="splash-progress-container" id="splash-progress-box">
+            <div class="splash-heartbeat-line">
+                <svg viewBox="0 0 500 40" preserveAspectRatio="none" class="ecg-svg">
+                    <path class="ecg-path" d="M 0,20 L 140,20 L 155,10 L 170,30 L 185,5 L 200,35 L 215,20 L 320,20 L 335,10 L 350,30 L 365,5 L 380,35 L 395,20 L 500,20" />
+                </svg>
+            </div>
+            <div class="splash-progress-track">
+                <div class="splash-progress-fill" id="splash-progress-bar"></div>
+            </div>
+            <div class="splash-loading-status" id="splash-status-text">
+                <span class="splash-status-dot"></span> 365 يوم من الرعاية الطبية المتكاملة • جاري تشغيل المنظومة...
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleMobileSidebar(false)"></div>
+
+<div class="app-layout">
+    <!-- ==================== SIDEBAR ON THE RIGHT ==================== -->
+    <aside class="sidebar" id="app-sidebar">
+        <div class="brand" style="justify-content: space-between; padding-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:4px 6px; box-shadow:0 2px 6px rgba(0,0,0,0.05); display:flex; align-items:center; justify-content:center;">
+                    <img src="assets/sidi-yaqout-logo-transparent.png" alt="عيادات سيدي ياقوت" style="height:38px; max-width:110px; object-fit:contain; display:block;" />
+                </div>
+                <div class="brand-info">
+                    <h2 style="font-size:13px; font-weight:800; color:#102a45; line-height:1.2;">عيادات سيدى ياقوت</h2>
+                    <span style="font-size:10px; color:#990012; font-weight:700; display:block; margin-top:2px;">365 يوم من الرعاية</span>
+                </div>
+            </div>
+            <button type="button" class="mobile-close-sidebar-btn" onclick="toggleMobileSidebar(false)" title="إغلاق القائمة">✕</button>
+        </div>
+
+        <nav class="nav-menu">
+            <div class="nav-title">الشاشات والعمليات الأساسية</div>
+            
+            <button class="nav-item active" id="nav-screen-welcome" onclick="switchScreen('screen-welcome', this)">
+                <span>👋</span>
+                <span>شاشة الترحيب</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-employees" onclick="switchScreen('screen-employees', this)">
+                <span>👥</span>
+                <span>تكويد الموظفين</span>
+                <span class="nav-badge" id="badge-emp-count">0</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-attendance" onclick="switchScreen('screen-attendance', this)">
+                <span>⏱️</span>
+                <span>تسجيل الحضور والانصراف</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-salary-adjustments" onclick="switchScreen('screen-salary-adjustments', this)">
+                <span>⚖️</span>
+                <span>تسويات الرواتب</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-payroll-summary" onclick="switchScreen('screen-payroll-summary', this)">
+                <span>📊</span>
+                <span>إجمالي رواتب الموظفين</span>
+            </button>
+
+            <div class="nav-title" style="margin-top:6px;">السراكي والتقارير المالية</div>
+
+            <button class="nav-item" id="nav-screen-employee-sarki" onclick="switchScreen('screen-employee-sarki', this)" style="display:none;">
+                <span>📑</span>
+                <span>سركي الراتب</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-single-sarki" onclick="switchScreen('screen-single-sarki', this)">
+                <span>📑</span>
+                <span>سركي موظف تفصيلي</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-bulk-payslips" onclick="switchScreen('screen-bulk-payslips', this)">
+                <span>🖨️</span>
+                <span>طباعة سركي الموظفين المجمعة</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-payroll-delivery" onclick="switchScreen('screen-payroll-delivery', this)">
+                <span>💵</span>
+                <span>تسليم وصرف الرواتب</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-emp-general-report" onclick="switchScreen('screen-emp-general-report', this)">
+                <span>👤</span>
+                <span>تقرير عام لموظف</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-totals-report" onclick="switchScreen('screen-totals-report', this)">
+                <span>📊</span>
+                <span>تقارير إجمالي الموظفين</span>
+            </button>
+
+            <div class="nav-title" style="margin-top:6px;">الأمان وإدارة البيانات</div>
+
+            <button class="nav-item" id="nav-screen-backup-restore" onclick="switchScreen('screen-backup-restore', this)">
+                <span>💾</span>
+                <span>النسخ الاحتياطي والاستعادة</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-users-roles" onclick="switchScreen('screen-users-roles', this)">
+                <span>🔐</span>
+                <span>المستخدمين والصلاحيات</span>
+            </button>
+
+            <button class="nav-item" id="nav-screen-firebase-settings" onclick="switchScreen('screen-firebase-settings', this)">
+                <span>☁️</span>
+                <span>سحابة وربط Firebase</span>
+                <span class="nav-badge" id="badge-firebase-status" style="font-size:10px; padding:1px 6px;">⚪ محلي</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="user-status-card" id="sidebar-user-card">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="font-size:16px;">👤</span>
+                        <strong id="sidebar-user-name" style="color:var(--text-main); font-size:12px;">المدير العام</strong>
+                    </div>
+                    <span id="sidebar-user-role-badge" class="role-badge role-admin">مدير النظام</span>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:2px;">
+                    <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 8px; flex:1; justify-content:center;" onclick="lockScreenModal()" title="قفل الشاشة برمز سري">🔒 قفل</button>
+                    <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 8px; flex:1; justify-content:center;" onclick="openSwitchUserModal()" title="تبديل المستخدم الحالي">🔄 تبديل</button>
+                </div>
+            </div>
+            
+            <div id="sidebar-cloud-status-indicator" style="display:flex; align-items:center; justify-content:center; gap:6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:5px 8px; margin-top:6px; cursor:pointer;" onclick="switchScreen('screen-firebase-settings', document.getElementById('nav-screen-firebase-settings'))" title="انقر لعرض وإعدادات سحابة Firebase">
+                <span class="pulse-dot pulse-gray" id="cloud-pulse-dot"></span>
+                <span id="cloud-status-text" style="font-size:10.5px; font-weight:bold; color:#6d28d9;">السحابة: محلي (Offline)</span>
+            </div>
+
+            <button type="button" class="btn-open-mobile-modal" onclick="openMobileConnectModal()" style="width:100%; margin-top:8px; justify-content:center;">
+                <span>📱</span>
+                <span>فتح على الموبايل والشبكة</span>
+            </button>
+
+            <div style="margin-top:6px; font-size:10.5px; color:var(--text-muted); text-align:center;">
+                منظومة محاسبية آمنة وسحابية 🟢
+            </div>
+        </div>
+    </aside>
+
+    <!-- ==================== MOBILE HEADER BAR ==================== -->
+    <header class="mobile-header-bar">
+        <div class="mobile-header-right">
+            <button type="button" class="btn-mobile-menu" onclick="toggleMobileSidebar(true)" title="فتح القائمة">☰</button>
+            <div class="mobile-brand-info" style="display:flex; align-items:center; gap:8px;">
+                <img src="assets/sidi-yaqout-logo-transparent.png" alt="عيادات سيدي ياقوت" style="height:32px; object-fit:contain;" />
+                <div>
+                    <div class="mobile-brand-title" style="font-size:12.5px; font-weight:800; color:#102a45;">عيادات سيدي ياقوت التخصصية</div>
+                    <div class="mobile-brand-sub" style="color:#990012; font-size:10px; font-weight:700;">365 يوم من الرعاية الطبية المتكاملة</div>
+                </div>
+            </div>
+        </div>
+        <div class="mobile-header-left">
+            <button type="button" class="btn-mobile-share-top" onclick="openMobileConnectModal()" title="فتح على أجهزة أخرى أو الهاتف">
+                <span>📱</span>
+                <span>الموبايل</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- ==================== MAIN WORKSPACE ON THE LEFT ==================== -->
+    <main class="main-content">
+
+        <!-- ==================== WORKSPACE CLINIC BRAND HEADER (PRESENT IN ALL SCREENS) ==================== -->
+        <div class="workspace-brand-topbar">
+            <div class="topbar-logo-side">
+                <img src="assets/sidi-yaqout-logo-transparent.png" alt="عيادات سيدي ياقوت التخصصية" class="topbar-clinic-logo" />
+                <div class="topbar-title-block">
+                    <span class="topbar-main-title">عيادات سيدي ياقوت التخصصية</span>
+                    <span class="topbar-sub-badge">منظومة إدارة الأطقم الطبية والرواتب والسراكي المعتمدة</span>
+                </div>
+            </div>
+            <div class="topbar-slogan-side">
+                <img src="assets/sidi-yaqout-slogan-transparent.png" alt="365 يوم من الرعاية الطبية المتكاملة" class="topbar-slogan-img" />
+            </div>
+        </div>
+
+        <!-- ==================== 0. شاشة ترحيب ==================== -->
+        <section id="screen-welcome" class="screen-view active">
+            <div class="welcome-banner">
+                <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
+                    <div style="background:#ffffff; padding:10px 14px; border-radius:14px; box-shadow:0 4px 15px rgba(0,0,0,0.12); display:flex; align-items:center; justify-content:center;">
+                        <img src="assets/sidi-yaqout-logo-transparent.png" alt="عيادات سيدي ياقوت التخصصية" style="height:60px; object-fit:contain; display:block;" />
+                    </div>
+                    <div class="welcome-text">
+                        <h2>مرحبا بك في منظومة عيادات سيدى ياقوت التخصصية</h2>
+                        <div style="display:flex; align-items:center; gap:8px; margin:4px 0 6px 0;">
+                            <img src="assets/sidi-yaqout-slogan-transparent.png" alt="365 يوم من الرعاية الطبية المتكاملة" style="height:32px; background:rgba(255,255,255,0.92); padding:2px 8px; border-radius:20px; object-fit:contain;" />
+                        </div>
+                        <p>متابعة وإحصائيات تكويد وسراكي ورواتب ساعات الأطقم الطبية والإدارية والخدمية</p>
+                    </div>
+                </div>
+                <div class="welcome-date-badge">
+                    <span id="welcome-live-date">اليوم</span>
+                    <div style="font-size:11px; color:#fde047; font-weight:bold; margin-top:2px;">بيانات حية مباشرة 🟢</div>
+                    <button type="button" onclick="replaySplashScreen()" style="font-size:10.5px; padding:3px 9px; margin-top:8px; background:rgba(255,255,255,0.9); color:#102a45; border:none; border-radius:6px; cursor:pointer; font-weight:bold; display:inline-block;" title="إعادة تشغيل شاشة التحميل الترحيبية">▶ عرض شاشة البداية</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card card-blue">
+                    <h4>👥 عدد الموظفين</h4>
+                    <div class="val" style="color:var(--accent);" id="dash-emp-count">0 موظف</div>
+                    <div class="sub-text">إجمالي الموظفين المكودين بالعيادات</div>
+                </div>
+
+                <div class="kpi-card card-purple">
+                    <h4>📅 راتب الشهر الحالي</h4>
+                    <div class="val" style="color:var(--purple);" id="dash-month-salary">0.00 ج.م</div>
+                    <div class="sub-text" id="dash-month-label">حسب تاريخ شيفتات الشهر الجاري</div>
+                </div>
+
+                <div class="kpi-card card-orange">
+                    <h4>📈 إجمالي رواتب العام</h4>
+                    <div class="val" style="color:var(--warning);" id="dash-year-salary">0.00 ج.م</div>
+                    <div class="sub-text" id="dash-year-label">مستحقات السنة الحالية بالكامل</div>
+                </div>
+
+                <div class="kpi-card card-green">
+                    <h4>✔ المسدد من الرواتب خلال العام</h4>
+                    <div class="val" style="color:var(--success);" id="dash-year-paid">0.00 ج.م</div>
+                    <div class="sub-text">المبالغ التي تم صرفها للموظفين</div>
+                </div>
+
+                <div class="kpi-card card-red">
+                    <h4>⏳ صافي المستحق (المتبقي)</h4>
+                    <div class="val" style="color:var(--danger);" id="dash-net-due">0.00 ج.م</div>
+                    <div class="sub-text">مستحقات معلقة لم تُسلّم بعد</div>
+                </div>
+            </div>
+
+            <div class="charts-container">
+                <!-- 1. الرسم البياني الأول: مقارنة وتوزيع رواتب الموظفين خلال فترة الراتب (25 إلى 24) مع أزرار التنقل الذكية -->
+                <div class="chart-box" id="chart-box-salary-period">
+                    <div class="chart-header" style="flex-wrap:wrap; gap:12px; align-items:center;">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <h3>💰 رسم بياني: مقارنة وتوزيع رواتب الموظفين خلال فترة الراتب (من 25 إلى 24)</h3>
+                            <span id="chart-period-badge" class="period-badge-pill">
+                                📅 جاري تحميل بيانات دورة الراتب...
+                            </span>
+                        </div>
+                        
+                        <!-- أزرار التنقل الذكية للفترة السابقة والحالية والتالية واختيار الدورة -->
+                        <div style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <button type="button" class="btn-period-nav" id="btn-period-prev" onclick="navigateSalaryPeriod(-1)" title="الانتقال إلى دورة الراتب السابقة">
+                                ◀ الفترة السابقة
+                            </button>
+                            <button type="button" class="btn-period-nav active" id="btn-period-current" onclick="navigateSalaryPeriod(0)" title="الرجوع المباشر إلى دورة الراتب الحالية">
+                                📌 الفترة الحالية
+                            </button>
+                            <button type="button" class="btn-period-nav" id="btn-period-next" onclick="navigateSalaryPeriod(1)" title="الانتقال إلى دورة الراتب التالية">
+                                الفترة التالية ▶
+                            </button>
+                            <select id="chart-period-select" onchange="onSalaryPeriodSelectChanged(this.value)" class="period-select-dropdown" title="اختيار سريع ومباشر لأي دورة راتب"></select>
+                        </div>
+                    </div>
+
+                    <!-- شريط إحصائيات ومؤشرات فترة الراتب المختارة -->
+                    <div id="chart-period-summary-bar" style="display:flex; gap:10px; margin: 4px 0 14px 0; flex-wrap:wrap;">
+                        <div class="period-stat-item">
+                            <span>💳 إجمالي رواتب الفترة:</span>
+                            <strong id="stat-period-total" style="color:#059669;">0.00 ج.م</strong>
+                        </div>
+                        <div class="period-stat-item">
+                            <span>👥 عدد الشيفتات:</span>
+                            <strong id="stat-period-shifts" style="color:#2563eb;">0 شيفت</strong>
+                        </div>
+                        <div class="period-stat-item">
+                            <span>📅 أيام العمل الفعلية:</span>
+                            <strong id="stat-period-activedays" style="color:#7c3aed;">0 يوم</strong>
+                        </div>
+                        <div class="period-stat-item">
+                            <span>⚖️ متوسط تكلفة اليوم:</span>
+                            <strong id="stat-period-avg" style="color:#d97706;">0.00 ج.م</strong>
+                        </div>
+                        <div class="period-stat-item" id="stat-period-max-container" style="display:none;">
+                            <span>⚡ أعلى يوم تكلفة:</span>
+                            <strong id="stat-period-max" style="color:#dc2626;">-</strong>
+                        </div>
+                    </div>
+
+                    <div class="chart-canvas-wrapper" style="position:relative;">
+                        <canvas id="chart-current-month-days"></canvas>
+                        <!-- نافذة التفاعل الذكية Tooltip عند تحريك المؤشر فوق الأعمدة -->
+                        <div id="chart-period-tooltip" style="display:none; position:absolute; pointer-events:none; background:rgba(15, 23, 42, 0.94); color:#ffffff; padding:8px 14px; border-radius:8px; font-size:11px; z-index:10; box-shadow:0 6px 16px rgba(0,0,0,0.28); border:1px solid rgba(255,255,255,0.18); transform:translate(-50%, -115%); transition:opacity 0.15s ease;"></div>
+                    </div>
+                </div>
+
+                <!-- 2. الرسم البياني الثاني: مقارنة الفترات والرواتب -->
+                <div class="chart-box" id="chart-box-periods-comparison">
+                    <div class="chart-header">
+                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                            <h3>🏛️ رسم بياني: مقارنة الفترات والرواتب</h3>
+                            <div style="display:inline-flex; background:#f1f5f9; padding:2px; border-radius:8px; border:1px solid #cbd5e1; gap:4px;">
+                                <button type="button" id="btn-chart-mode-months" onclick="switchSalaryChartMode('months')" style="border:none; padding:4px 11px; font-size:11px; font-weight:700; border-radius:6px; cursor:pointer; background:#7c3aed; color:#ffffff; transition:all 0.2s;" title="مقارنة تكلفة الرواتب الشهرية خلال العام">📅 شهور العام</button>
+                                <button type="button" id="btn-chart-mode-emps" onclick="switchSalaryChartMode('employees')" style="border:none; padding:4px 11px; font-size:11px; font-weight:700; border-radius:6px; cursor:pointer; background:transparent; color:#475569; transition:all 0.2s;" title="مقارنة رواتب الموظفين النشطين بحسب الراتب">👥 مقارنة رواتب الموظفين</button>
+                            </div>
+                        </div>
+                        <span id="chart-year-label">مقارنة فترات سنة 2026</span>
+                    </div>
+                    <div class="chart-canvas-wrapper">
+                        <canvas id="chart-year-months"></canvas>
+                    </div>
+                </div>
+
+                <!-- 3. الرسم البياني الثالث: عدد الموظفين النشطين كل شهر -->
+                <div class="chart-box" id="chart-box-employees-active">
+                    <div class="chart-header">
+                        <h3>📊 رسم بياني: مقارنة عدد الموظفين النشطين كل شهر</h3>
+                        <span>توزيع عدد العاملين الذين تم تسجيل شيفتات لهم شهرياً</span>
+                    </div>
+                    <div class="chart-canvas-wrapper">
+                        <canvas id="chart-employees-month"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 1. تكويد الموظفين ==================== -->
+        <section id="screen-employees" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>👥 شاشة تكويد وبيانات الموظفين</h1>
+                    <p>إدارة وتكويد الأطقم الطبية والإدارية، احتساب شرائح الساعات والإضافي ومتابعة زيادات الرواتب</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-header-icon btn-header-undo" onclick="undoLastEmpAction()" title="تراجع عن آخر حركة">↩️</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="saveEmpDataExplicit()" title="حفظ المعاملات الحالية">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printActiveEmployeesOnly()" title="طباعة كشف الموظفين النشطين">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('employees-table', 'بيانات_الموظفين')" title="تصدير جدول بيانات الموظفين إلى Excel">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportEmployeesToPdf()" title="تصدير كشف بيانات الموظفين كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- Form: جزء تكويد الموظف ثابت بالأعلى -->
+            <div class="panel" style="margin-bottom:16px;">
+                <div class="panel-title">
+                    <span>➕ تكويد موظف جديد في المنظومة</span>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <button type="button" class="btn-header-icon btn-header-undo" style="width:30px; height:30px; font-size:14px;" onclick="undoLastEmpAction()" title="تراجع">↩️</button>
+                        <button type="button" class="btn-header-icon btn-header-save" style="width:30px; height:30px; font-size:14px;" onclick="saveEmpDataExplicit()" title="حفظ">💾</button>
+                        <button type="button" class="btn-header-icon btn-header-print" style="width:30px; height:30px; font-size:14px;" onclick="printActiveEmployeesOnly()" title="طباعة">🖨️</button>
+                    </div>
+                </div>
+                <form id="emp-form">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>اسم الموظف *</label>
+                            <input type="text" id="new-emp-name" placeholder="اسم الموظف ثلاثي" required>
+                        </div>
+                        <div class="field">
+                            <label>القسم / الوظيفة *</label>
+                            <input type="text" id="new-emp-job" placeholder="اختر أو اكتب القسم" autocomplete="off" required>
+                            <datalist id="jobs-list"></datalist>
+                        </div>
+                        <div class="field">
+                            <label>الراتب الشهري (ج.م) *</label>
+                            <input type="number" id="new-emp-basic" step="50" placeholder="مثال: 3000" required>
+                        </div>
+                        <div class="field">
+                            <label>عدد ساعات الشيفت *</label>
+                            <input type="number" id="new-emp-shift-hours" step="1" value="8" required>
+                        </div>
+                        <div class="field">
+                            <label>يوم الإجازة الأسبوعية *</label>
+                            <select id="new-emp-off" required>
+                                <option value="الجمعة (Friday)">الجمعة (Friday)</option>
+                                <option value="الأحد (Sunday)">الأحد (Sunday)</option>
+                                <option value="الأربعاء (Wednesday)">الأربعاء (Wednesday)</option>
+                                <option value="الثلاثاء (Tuesday)">الثلاثاء (Tuesday)</option>
+                                <option value="السبت (Saturday)">السبت (Saturday)</option>
+                                <option value="الاثنين (Monday)">الاثنين (Monday)</option>
+                                <option value="الخميس (Thursday)">الخميس (Thursday)</option>
+                                <option value="لا إجازات">لا إجازات</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="actions" style="margin-top:12px;">
+                        <button type="submit" class="btn-primary" style="flex:1;">💾 إضافة وتكويد الموظف</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- شريط الأدوات والفلترة أعلى الجدول مع زر تصدير إكسيل -->
+            <div class="filter-bar" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+                <input type="text" id="emp-search" placeholder="🔍 بحث باسم الموظف..." onkeyup="renderEmployeesTable()" style="min-width:200px; flex:2;">
+                
+                <select id="dept-filter" onchange="renderEmployeesTable()" style="max-width:170px; flex:1;">
+                    <option value="">جميع الأقسام</option>
+                </select>
+
+                <select id="status-filter" onchange="renderEmployeesTable()" style="max-width:160px; flex:1;">
+                    <option value="">جميع الحالات</option>
+                    <option value="نشط" selected>الموظفين على رأس العمل (نشط)</option>
+                    <option value="انتهت خدمته">منتهية خدمتهم</option>
+                </select>
+
+                <button type="button" class="btn-success" onclick="openBatchIncreaseModal()" style="font-size:12.5px; padding:9px 14px; white-space:nowrap;">
+                    📈 زيادة راتب موظف
+                </button>
+
+                <button type="button" class="btn-secondary" onclick="exportEmployeesCSV()" style="font-size:12.5px; padding:9px 14px; white-space:nowrap;">
+                    📊 تصدير إلى Excel
+                </button>
+            </div>
+
+            <!-- حاوية الجدول: عناوين ثابتة، 10 صفوف، ثبات الكود والاسم والقسم -->
+            <datalist id="emp-attendance-datalist"></datalist>
+            <div class="emp-table-container" style="max-height:510px;">
+                <table id="employees-table">
+                    <thead>
+                        <tr>
+                            <th class="sticky-col-1">كود الموظف</th>
+                            <th class="sticky-col-2">اسم الموظف</th>
+                            <th class="sticky-col-3">القسم</th>
+                            <th>يوم الإجازة الأسبوعية</th>
+                            <th>الراتب</th>
+                            <th>ساعات الشيفت</th>
+                            <th>سعر الساعة</th>
+                            <th>إضافي أول ساعة</th>
+                            <th>إضافي من س1 إلى س2</th>
+                            <th>إضافي ما يزيد عن ساعتين</th>
+                            <th>تاريخ آخر زيادة راتب</th>
+                            <th>الراتب قبل التعديل</th>
+                            <th>قيمة الزيادة</th>
+                            <th>الحالة</th>
+                            <th>إجراءات (تعديل / خدمة)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="employees-tbody"></tbody>
+                </table>
+                <div id="emp-empty" class="empty-hint" style="display:none;">لا يوجد موظفون مطابقون للشروط.</div>
+            </div>
+        </section>
+
+        <!-- نافذة تعديل بيانات موظف بالكامل -->
+        <div id="modal-edit-emp" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.45); backdrop-filter:blur(6px); z-index:9999; align-items:center; justify-content:center;">
+            <div style="background:var(--surface); border:1px solid var(--accent); border-radius:14px; width:92%; max-width:650px; padding:24px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+                    <h3 style="color:var(--accent); font-size:17px; font-weight:800;">✏️ تعديل بيانات الموظف</h3>
+                    <button onclick="closeEditModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✖</button>
+                </div>
+                <form id="edit-emp-form">
+                    <input type="hidden" id="edit-emp-id">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>اسم الموظف</label>
+                            <input type="text" id="edit-emp-name" required>
+                        </div>
+                        <div class="field">
+                            <label>القسم / الوظيفة</label>
+                            <input type="text" id="edit-emp-job" autocomplete="off" required>
+                        </div>
+                        <div class="field">
+                            <label>الراتب الحالي (ج.م)</label>
+                            <input type="number" id="edit-emp-basic" step="50" required>
+                        </div>
+                        <div class="field">
+                            <label>عدد ساعات الشيفت</label>
+                            <input type="number" id="edit-emp-shift-hours" step="1" required>
+                        </div>
+                        <div class="field">
+                            <label>يوم الإجازة الأسبوعية</label>
+                            <select id="edit-emp-off">
+                                <option value="الجمعة (Friday)">الجمعة (Friday)</option>
+                                <option value="الأحد (Sunday)">الأحد (Sunday)</option>
+                                <option value="الأربعاء (Wednesday)">الأربعاء (Wednesday)</option>
+                                <option value="الثلاثاء (Tuesday)">الثلاثاء (Tuesday)</option>
+                                <option value="السبت (Saturday)">السبت (Saturday)</option>
+                                <option value="الاثنين (Monday)">الاثنين (Monday)</option>
+                                <option value="الخميس (Thursday)">الخميس (Thursday)</option>
+                                <option value="لا إجازات">لا إجازات</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>حالة الموظف</label>
+                            <select id="edit-emp-status">
+                                <option value="نشط">نشط (على رأس العمل)</option>
+                                <option value="انتهت خدمته">انتهت خدمته</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button type="submit" class="btn-primary">💾 حفظ التعديلات</button>
+                        <button type="button" class="btn-secondary" onclick="closeEditModal()">إلغاء</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- نافذة زيادة الراتب -->
+        <div id="modal-salary-increase" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.45); backdrop-filter:blur(6px); z-index:9999; align-items:center; justify-content:center;">
+            <div style="background:var(--surface); border:1px solid var(--success); border-radius:14px; width:92%; max-width:550px; padding:24px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+                    <h3 style="color:var(--success); font-size:17px; font-weight:800;">📈 إقرار زيادة راتب لموظف</h3>
+                    <button onclick="closeIncreaseModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✖</button>
+                </div>
+                <form id="increase-emp-form">
+                    <div class="field" style="margin-bottom:14px;">
+                        <label>اختر الموظف المراد زيادة راتبه</label>
+                        <select id="inc-emp-select" onchange="onIncreaseEmpChange()" required>
+                            <option value="">-- اختر موظف --</option>
+                        </select>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>الراتب الحالي (قبل الزيادة)</label>
+                            <input type="text" id="inc-current-salary" readonly style="background:#f8fafc; color:#475569; border:1.5px solid #cbd5e1;">
+                        </div>
+                        <div class="field">
+                            <label>قيمة الزيادة المالية (ج.م) *</label>
+                            <input type="number" id="inc-amount" step="50" placeholder="مثال: 500" onkeyup="calcNewSalaryPreview()" required>
+                        </div>
+                        <div class="field">
+                            <label>الراتب الجديد بعد الزيادة</label>
+                            <input type="text" id="inc-new-salary" readonly style="background:#f8fafc; color:#2563eb; font-weight:bold; border:1.5px solid #cbd5e1;">
+                        </div>
+                        <div class="field">
+                            <label>شهر تطبيق الزيادة *</label>
+                            <input type="month" id="inc-month" required>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button type="submit" class="btn-success" style="flex:1;">✔ اعتماد وتطبيق زيادة الراتب</button>
+                        <button type="button" class="btn-secondary" onclick="closeIncreaseModal()">إلغاء</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ==================== 2. تسجيل الحضور والانصراف ==================== -->
+        <section id="screen-attendance" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>⏱️ شاشة تسجيل الحضور والانصراف</h1>
+                    <p>تسجيل يومية الحضور والانصراف بنظام 24 ساعة وتشريح ساعات الشيفت والإضافي تلقائياً</p>
+                </div>
+                <!-- زراير التحكم والتصدير أعلى الشاشة -->
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-header-icon btn-header-undo" onclick="undoAttendanceAction()" title="تراجع عن آخر تعديل في اليومية">↩️</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="saveDailyAttendanceExplicit()" title="حفظ فوري لحركات اليومية الحالية">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printDailyAttendanceSheet()" title="طباعة كشف اليومية الرسمي المفلتر">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('daily-attendance-table', 'يومية_الحضور_والانصراف')" title="تصدير جدول يومية الحضور والانصراف إلى Excel">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportAttendanceToPdf()" title="تصدير كشف اليومية كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- بار علوي منسق: تاريخ الشيفت - إنهاء اليومية - تعديل يومية سابقة -->
+            <div class="panel" style="margin-bottom:14px; padding:16px 20px;">
+                <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <div class="field" style="min-width:180px;">
+                            <label style="color:var(--accent); font-weight:bold;">📅 تاريخ الشيفت اليومي *</label>
+                            <input type="date" id="att-shift-date" onchange="onShiftDateChanged()" style="font-weight:bold; font-size:14px;">
+                        </div>
+                        <div class="field" style="display:flex; flex-direction:row; align-items:center; gap:8px; padding-top:20px; cursor:pointer;">
+                            <input type="checkbox" id="att-is-holiday" style="width:20px; height:20px; cursor:pointer; accent-color:#ef4444;" onchange="onHolidayCheckboxChanged()">
+                            <label for="att-is-holiday" style="color:#ef4444; font-weight:bold; font-size:13.5px; cursor:pointer;" title="تحديد اليوم كإجازة رسمية لاحتساب يوم عمل زيادة لكل موظف شغال">🎉 إجازة رسمية</label>
+                        </div>
+                        <div style="padding-top:18px;">
+                            <button type="button" class="btn-success" onclick="finalizeAndPostDailyAttendance()" style="font-size:13px; padding:9px 18px; font-weight:bold; box-shadow:0 2px 10px rgba(36,130,150,0.3);">
+                                🔒 إنهاء اليومية وترحيلها للحسابات
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div class="field" style="min-width:170px;">
+                            <label style="color:var(--warning); font-weight:bold;">✏️ تاريخ يومية للتعديل</label>
+                            <input type="date" id="att-edit-date-input">
+                        </div>
+                        <div style="padding-top:18px;">
+                            <button type="button" class="btn-warning" onclick="loadPreviousDayForEdit()" style="font-size:13px; padding:9px 16px; font-weight:bold;">
+                                📂 عرض وتعديل اليومية
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- أزرار الإجراءات السريعة والذكية لليومية -->
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+                    <button type="button" class="btn-success" onclick="populateAllActiveToDaily()" style="font-size:12px; padding:7px 14px; font-weight:bold;" title="استدعاء كافة الموظفين النشطين في جدول اليومية فورياً">
+                        👥 استدعاء كل الموظفين النشطين
+                    </button>
+                    <button type="button" class="btn-primary" onclick="fillDefaultShiftTimesForAll()" style="font-size:12px; padding:7px 14px; font-weight:bold;" title="تعبئة أوقات الحضور الافتراضية (08:30 إلى انتهاء الشيفت القياسي) لجميع الموظفين بنقرة واحدة">
+                        ⚡ تعبئة مواعيد الشيفت الافتراضية
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="clearCurrentDailyTimes()" style="font-size:12px; padding:7px 12px;" title="تفريغ أوقات الحضور والانصراف للبدء من جديد">
+                        🧹 تفريغ أوقات اليومية
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="addBlankAttendanceRow()" style="font-size:12px; padding:7px 12px;">
+                        ➕ إضافة سطر إضافي
+                    </button>
+                    <div id="att-present-count-box" style="display:inline-flex; align-items:center; gap:6px; background:#eff6ff; border:1.5px solid #3b82f6; border-radius:8px; padding:5px 12px; font-size:12px; font-weight:bold; color:#1e40af; box-shadow:0 1px 3px rgba(59,130,246,0.12);" title="عدد الموظفين المسجلين في اليومية الحالية">
+                        <span>👥 عدد الحضور باليومية:</span>
+                        <span id="att-present-count-val" style="font-size:14px; font-weight:900; color:#1d4ed8; font-family:Consolas, monospace; background:#ffffff; padding:2px 8px; border-radius:5px; border:1px solid #bfdbfe;">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- جدول تسجيل الحضور والانصراف (10 صفوف، تمرير سلس، ثبات الكود والاسم) -->
+            <div class="emp-table-container" style="max-height:510px;">
+                <table id="daily-attendance-table">
+                    <thead>
+                        <tr>
+                            <th class="sticky-col-1" style="min-width:85px; max-width:85px;">كود الموظف</th>
+                            <th class="sticky-col-2" style="min-width:220px; max-width:220px;">اختيار الموظف</th>
+                            <th style="min-width:110px;">القسم</th>
+                            <th style="min-width:120px; color:var(--accent);">حضور (24س)</th>
+                            <th style="min-width:120px; color:var(--accent);">انصراف (24س)</th>
+                            <th style="min-width:105px; color:var(--accent);">إجمالي الساعات</th>
+                            <th style="min-width:100px;">الشيفت الأساسي</th>
+                            <th style="min-width:105px; color:var(--warning);">إجمالي الإضافي</th>
+                        </tr>
+                    </thead>
+                    <tbody id="daily-attendance-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+<!-- ==================== 2.1 شاشة تسويات الرواتب ==================== -->
+        <section id="screen-salary-adjustments" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>⚖️ شاشة تسويات الرواتب</h1>
+                    <p>إدارة وتوثيق الإضافات والاستقطاعات الشهرية للموظفين واحتساب صافي التسويات آلياً</p>
+                </div>
+                <!-- زراير التحكم والتصدير أعلى الشاشة -->
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-success" style="font-size:12px; padding:7px 14px; border-radius:8px; font-weight:bold;" onclick="openBatchDeptBonusModal()" title="إقرار مكافأة أو تسوية مالية موحدة لقسم بالكامل">⚡ تسوية جماعية لقسم</button>
+                    <button type="button" class="btn-header-icon btn-header-undo" onclick="undoAdjustmentsAction()" title="تراجع عن آخر عملية">↩️</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="saveAdjustmentsExplicit()" title="حفظ معاملات تسويات الرواتب">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printAdjustmentsSheet()" title="طباعة كشف تسويات الموظفين النشطين">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('salary-adjustments-table', 'تسويات_الرواتب')" title="تصدير جدول تسويات الرواتب إلى Excel">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportAdjustmentsToPdf()" title="تصدير كشف التسويات كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- بار علوي: شهر التسوية - بحث وفلترة - كروت الإجماليات -->
+            <div class="panel" style="margin-bottom:14px; padding:16px 20px;">
+                <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <div class="field" style="min-width:210px;">
+                            <label style="color:var(--accent); font-weight:bold;">📅 دورة احتساب الراتب (25 إلى 24) *</label>
+                            <select id="adj-cycle-select" onchange="onAdjustmentCycleSelectChanged()" style="font-weight:bold; font-size:13px;"></select>
+                        </div>
+                        <div class="field" style="min-width:145px;">
+                            <label style="color:var(--text-muted); font-size:11.5px;">من تاريخ (25)</label>
+                            <input type="date" id="adj-start-date" onchange="renderAdjustmentsTable()" style="font-weight:bold; font-size:12.5px;">
+                        </div>
+                        <div class="field" style="min-width:145px;">
+                            <label style="color:var(--text-muted); font-size:11.5px;">إلى تاريخ (24)</label>
+                            <input type="date" id="adj-end-date" onchange="renderAdjustmentsTable()" style="font-weight:bold; font-size:12.5px;">
+                        </div>
+                        <div class="field" style="min-width:170px;">
+                            <label style="color:var(--text-muted); font-weight:bold;">🔍 بحث بالاسم أو الكود</label>
+                            <input type="text" id="adj-search" placeholder="بحث بالموظف..." onkeyup="renderAdjustmentsTable()">
+                        </div>
+                        <div class="field" style="min-width:160px;">
+                            <label style="color:var(--text-muted); font-weight:bold;">القسم</label>
+                            <select id="adj-dept-filter" onchange="renderAdjustmentsTable()">
+                                <option value="">جميع الأقسام</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- كروت سريعة لإجماليات شاشة التسويات -->
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <div style="background:#ffffff; border:1.5px solid #e2e8f0; box-shadow:0 2px 8px rgba(124,58,237,0.06); padding:10px 18px; border-radius:12px; text-align:center; min-width:130px;">
+                            <div style="font-size:12px; color:#6d28d9; font-weight:bold; margin-bottom:4px;">إجمالي الإضافات</div>
+                            <div id="adj-summary-additions" style="font-size:17px; font-weight:800; color:#2563eb;">0.00 ج.م</div>
+                        </div>
+                        <div style="background:#ffffff; border:1.5px solid #e2e8f0; box-shadow:0 2px 8px rgba(16,42,69,0.06); padding:10px 18px; border-radius:12px; text-align:center; min-width:130px;">
+                            <div style="font-size:12px; color:#102a45; font-weight:bold; margin-bottom:4px;">إجمالي الخصومات</div>
+                            <div id="adj-summary-deductions" style="font-size:17px; font-weight:800; color:#dc2626;">0.00 ج.م</div>
+                        </div>
+                        <div style="background:#ffffff; border:1.5px solid #fecdd3; box-shadow:0 2px 8px rgba(153,0,18,0.08); padding:10px 18px; border-radius:12px; text-align:center; min-width:130px;">
+                            <div style="font-size:12px; color:#990012; font-weight:bold; margin-bottom:4px;">صافي التسويات</div>
+                            <div id="adj-summary-net" style="font-size:17px; font-weight:800; color:#990012;">0.00 ج.م</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- جدول شهور السنة لتسويات الرواتب (موجود فوق جدول الموظفين) -->
+            <div class="panel" style="margin-bottom:18px;">
+                <div class="panel-title">
+                    <span>📅 سجل ملخص تسويات دورات السنة (25 إلى 24) - اضغط على أي دورة لعرض جدول تسوياتها</span>
+                    <span style="font-size:12px; color:var(--text-muted);">السنة الحالية: <strong id="adj-year-display">2026</strong></span>
+                </div>
+                <div class="emp-table-container" style="max-height:260px; margin-bottom:0;">
+                    <table id="adj-months-summary-table">
+                        <thead>
+                            <tr>
+                                <th style="min-width:170px;">دورة الراتب (25 إلى 24)</th>
+                                <th style="min-width:120px; color:#10b981;">إجمالي الإضافات</th>
+                                <th style="min-width:120px; color:#ef4444;">إجمالي الخصومات</th>
+                                <th style="min-width:120px; color:var(--accent);">صافي التسويات</th>
+                                <th style="min-width:110px;">الموظفين المسجلين</th>
+                                <th style="min-width:130px;">حالة التسوية</th>
+                                <th style="min-width:110px;">إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adj-months-summary-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- جدول تسويات الرواتب (الموظفين النشطين فقط، ثبات الكود والاسم والقسم زى شاشة التكويد) -->
+            <div class="emp-table-container" style="max-height:510px;">
+                <table id="salary-adjustments-table">
+                    <thead>
+                        <tr>
+                            <th class="sticky-col-1" style="min-width:85px; max-width:85px;">كود الموظف</th>
+                            <th class="sticky-col-2" style="min-width:180px; max-width:180px;">اسم الموظف</th>
+                            <th class="sticky-col-3" style="min-width:110px; max-width:110px;">القسم</th>
+                            <th style="min-width:85px; color:#10b981;">زيارات</th>
+                            <th style="min-width:85px; color:#10b981;">كاش باك</th>
+                            <th style="min-width:85px; color:#10b981;">مكافآت</th>
+                            <th style="min-width:85px; color:#10b981;">بدل إدارة</th>
+                            <th style="min-width:85px; color:#10b981;">بونص</th>
+                            <th style="min-width:85px; color:#ef4444;">سلف</th>
+                            <th style="min-width:85px; color:#ef4444;">جزاءات</th>
+                            <th style="min-width:85px; color:#ef4444;">تأمينات</th>
+                            <th style="min-width:95px; color:#ef4444;">خصم مستلزمات</th>
+                            <th style="min-width:95px; color:#ef4444;">استقطاعات أخرى</th>
+                            <th style="min-width:100px; color:#10b981; font-weight:bold;">إجمالي الإضافات</th>
+                            <th style="min-width:100px; color:#ef4444; font-weight:bold;">إجمالي الخصومات</th>
+                            <th style="min-width:100px; color:var(--accent); font-weight:bold;">صافي التسوية</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adjustments-tbody"></tbody>
+                </table>
+                <div id="adj-empty" class="empty-hint" style="display:none;">لا يوجد موظفون مطابقون للشروط.</div>
+            </div>
+        </section>
+
+        <!-- ==================== 2.2 شاشة إجمالي رواتب الموظفين ==================== -->
+        <section id="screen-payroll-summary" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>📊 شاشة إجمالي رواتب الموظفين الشاملة</h1>
+                    <p>احتساب تفصيلي لساعات الشيفت الأساسي، شرائح الإضافي الثلاث وقيمها، الراحات الأسبوعية، وبنود تسويات الرواتب وصافي المستحق</p>
+                </div>
+                <!-- زراير التحكم والتصدير أعلى الشاشة -->
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-header-icon btn-header-undo" onclick="undoPayrollSummaryAction()" title="تراجع عن آخر حركة">↩️</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="savePayrollSummaryExplicit()" title="حفظ واعتماد مسير رواتب الفترة">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printPayrollSummarySheet()" title="طباعة كشف إجمالي الرواتب">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('payroll-summary-table', 'إجمالي_رواتب_الموظفين')" title="تصدير كشف إجمالي رواتب الموظفين إلى Excel">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportPayrollSummaryToPdf()" title="تصدير كشف إجمالي الرواتب كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- بار علوي: دورة الرواتب الشهرية (من 25 إلى 24) - فلترة وبحث - كروت الإجماليات -->
+            <div class="panel" style="margin-bottom:14px; padding:16px 20px;">
+                <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <div class="field" style="min-width:210px;">
+                            <label style="color:var(--accent); font-weight:bold;">📅 دورة احتساب الراتب (25 إلى 24) *</label>
+                            <select id="psummary-cycle-select" onchange="onPayrollCycleSelectChanged()" style="font-weight:bold; font-size:13px;"></select>
+                        </div>
+                        <div class="field" style="min-width:145px;">
+                            <label style="color:var(--text-muted); font-size:11.5px;">من تاريخ (25)</label>
+                            <input type="date" id="psummary-start-date" onchange="renderPayrollSummaryTable()" style="font-weight:bold; font-size:12.5px;">
+                        </div>
+                        <div class="field" style="min-width:145px;">
+                            <label style="color:var(--text-muted); font-size:11.5px;">إلى تاريخ (24)</label>
+                            <input type="date" id="psummary-end-date" onchange="renderPayrollSummaryTable()" style="font-weight:bold; font-size:12.5px;">
+                        </div>
+                        <div class="field" style="min-width:160px;">
+                            <label style="color:var(--text-muted); font-size:11.5px;">🔍 بحث بالموظف</label>
+                            <input type="text" id="psummary-search" placeholder="بحث بالاسم أو الكود..." onkeyup="renderPayrollSummaryTable()" style="font-size:13px;">
+                        </div>
+                        <div class="field" style="min-width:130px;">
+                            <label style="color:var(--text-muted); font-size:11.5px;">القسم</label>
+                            <select id="psummary-dept-filter" onchange="renderPayrollSummaryTable()" style="font-size:13px;">
+                                <option value="">جميع الأقسام</option>
+                            </select>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- جدول إجمالي رواتب الموظفين (الموظفون النشطون فقط، تثبيت الأعمدة الثلاثة الأولى) -->
+            <div class="emp-table-container" style="max-height:510px;">
+                <table id="payroll-summary-table">
+                    <thead>
+                        <tr>
+                            <th class="sticky-col-1" style="min-width:100px; max-width:100px;">القسم</th>
+                            <th class="sticky-col-2" style="min-width:75px; max-width:75px;">كود الموظف</th>
+                            <th class="sticky-col-3" style="min-width:160px; max-width:160px;">اسم الموظف</th>
+                            <th style="min-width:90px;">الراتب الأساسي</th>
+                            
+                            <!-- الشيفت الأساسي -->
+                            <th style="min-width:95px; color:var(--accent);">ساعات الشيفت الأساسي</th>
+                            <th style="min-width:105px; color:#10b981;">قيمة ساعات الشيفت الأساسي</th>
+
+                            <!-- الإضافي المقسم بشرائحه الثلاث -->
+                            <th style="min-width:95px; color:var(--warning);">إجمالي ساعات الإضافي</th>
+                            <th style="min-width:75px;">أول ساعة</th>
+                            <th style="min-width:90px; color:#10b981;">قيمة أول ساعة</th>
+                            <th style="min-width:85px;">س1 إلى س2</th>
+                            <th style="min-width:90px; color:#10b981;">قيمة س1 إلى س2</th>
+                            <th style="min-width:90px;">ما يزيد عن ساعتين</th>
+                            <th style="min-width:100px; color:#10b981;">قيمة ما يزيد عن ساعتين</th>
+                            <th style="min-width:105px; color:#10b981; font-weight:bold;">إجمالي الإضافي</th>
+                            <th style="min-width:115px; color:#ef4444; font-weight:bold;">بدل الإجازات الرسمية</th>
+                            <th style="min-width:105px; color:#10b981; font-weight:bold;">إجمالي أجر العمل</th>
+
+                            <!-- الراحات الأسبوعية -->
+                            <th style="min-width:95px; color:#f59e0b;">إجمالي الراحات الأسبوعية</th>
+                            <th style="min-width:100px; color:#f59e0b;">قيمة الراحات الأسبوعية</th>
+
+                            <!-- بنود التسويات: الإضافات -->
+                            <th style="min-width:70px; color:#10b981;">زيارات</th>
+                            <th style="min-width:70px; color:#10b981;">كاش باك</th>
+                            <th style="min-width:70px; color:#10b981;">مكافآت</th>
+                            <th style="min-width:75px; color:#10b981;">بدل إدارة</th>
+                            <th style="min-width:70px; color:#10b981;">بونص</th>
+                            <th style="min-width:90px; color:#10b981; font-weight:bold;">إجمالي الإضافات</th>
+
+                            <!-- بنود التسويات: الاستقطاعات -->
+                            <th style="min-width:70px; color:#ef4444;">سلف</th>
+                            <th style="min-width:70px; color:#ef4444;">جزاءات</th>
+                            <th style="min-width:70px; color:#ef4444;">تأمينات</th>
+                            <th style="min-width:80px; color:#ef4444;">خصم مستلزمات</th>
+                            <th style="min-width:90px; color:#ef4444;">استقطاعات أخرى</th>
+                            <th style="min-width:90px; color:#ef4444; font-weight:bold;">إجمالي الخصومات</th>
+
+                            <!-- الصافي النهائي المعتمد -->
+                            <th style="min-width:120px; color:#a855f7; font-weight:800; font-size:13px; background:rgba(168,85,247,0.15);">صافي الراتب المستحق</th>
+                        </tr>
+                        <!-- صف إجمالي كل عمود أعلى الجدول مباشرة من أول الراتب الأساسي لحد آخر الجدول -->
+                        <tr id="psummary-totals-top-row" class="psummary-totals-header-row" style="background:#0f172a; color:#ffffff; border-bottom:2.5px solid #38bdf8; font-weight:bold;">
+                            <th colspan="3" class="sticky-col-1" style="text-align:center; background:#102a45; color:#fde047; font-weight:900; font-size:12px; border:1px solid #334155;">الإجماليات العامة ⬅️</th>
+                            <th id="psummary-tot-basic-salary" style="text-align:center; background:#1e293b; color:#38bdf8; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-basic-hours" style="text-align:center; background:#1e293b; color:#38bdf8; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-basic-wage" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ov-hours" style="text-align:center; background:#1e293b; color:#fbbf24; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ov1-hours" style="text-align:center; background:#1e293b; color:#fbbf24; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ov1-wage" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ov2-hours" style="text-align:center; background:#1e293b; color:#fbbf24; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ov2-wage" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ovmore-hours" style="text-align:center; background:#1e293b; color:#fbbf24; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ovmore-wage" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-ov-total-wage" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-holiday-allowance" style="text-align:center; background:#1e293b; color:#f87171; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-work-wage-col" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-off-days-col" style="text-align:center; background:#1e293b; color:#fbbf24; font-size:11.5px; padding:6px 4px;">0</th>
+                            <th id="psummary-tot-off-wage-col" style="text-align:center; background:#1e293b; color:#fbbf24; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-visits" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-cashback" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-rewards" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-admin" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-bonus" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-additions" style="text-align:center; background:#1e293b; color:#34d399; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-advances" style="text-align:center; background:#1e293b; color:#f87171; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-penalties" style="text-align:center; background:#1e293b; color:#f87171; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-insurance" style="text-align:center; background:#1e293b; color:#f87171; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-supplies" style="text-align:center; background:#1e293b; color:#f87171; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-other-deductions" style="text-align:center; background:#1e293b; color:#f87171; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-deductions" style="text-align:center; background:#1e293b; color:#f87171; font-size:11.5px; padding:6px 4px;">0.00</th>
+                            <th id="psummary-tot-net-period-col" style="text-align:center; background:#3b0764; color:#f0abfc; font-weight:900; font-size:12.5px; padding:6px 4px;">0.00</th>
+                        </tr>
+                    </thead>
+                    <tbody id="payroll-summary-tbody"></tbody>
+                </table>
+                <div id="psummary-empty" class="empty-hint" style="display:none;">لا يوجد موظفون مطابقون للشروط.</div>
+            </div>
+        </section>
+
+                <!-- ==================== 3. سركي موظف ==================== -->
+                <section id="screen-single-sarki" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>📑 سركي وبيان راتب موظف تفصيلي</h1>
+                    <p>عرض وطباعة وحفظ كشف سركي الراتب التفصيلي مطابق لنموذج الإكسيل المعتمد</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <button type="button" class="btn-header-icon btn-header-undo" onclick="switchScreen('screen-payroll-summary', document.getElementById('nav-screen-payroll-summary'))" title="الرجوع إلى شاشة إجمالي الرواتب">↩️</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="saveSarkiDataExplicit()" title="حفظ واعتماد بيانات السركي">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printSingleSarkiSheet()" title="طباعة كشف السركي كاملاً">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportSingleSarkiToExcel()" title="تصدير كشف السركي مطابق للإكسيل">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportSarkiToPdf()" title="حفظ وتنزيل السركي كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- حاوية شيت سركي وبيان الراتب المطابق لشيت الإكسيل بالكامل -->
+            <div id="sarki-sheet-wrapper" style="background:#ffffff; color:#000000; border:2px solid #000; border-radius:8px; padding:20px; box-shadow:0 4px 25px rgba(0,0,0,0.4); font-family:Tahoma, Arial, sans-serif;">
+                
+                <!-- عنوان الشيت في المنتصف -->
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2.5px solid #990012; padding-bottom:10px; margin-bottom:14px;">
+                    <div style="min-width:210px; display:flex; align-items:center; gap:8px;">
+                        <img src="assets/sidi-yaqout-logo.png" alt="عيادات سيدي ياقوت" style="height:55px; max-width:185px; object-fit:contain; display:block;" />
+                    </div>
+                    <div style="text-align:center; flex:1;">
+                        <h2 style="font-size:22px; font-weight:900; margin:0; color:#102a45;">سركي وبيان راتب موظف</h2>
+                        <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-top:2px;">
+                            <span style="font-size:13px; color:#990012; font-weight:800;">عيادات سيدي ياقوت التخصصية</span>
+                            <span style="font-size:11.5px; color:#475569; font-weight:600;">• 365 يوم من الرعاية</span>
+                        </div>
+                    </div>
+                    <div style="min-width:210px; text-align:left; font-size:11px; font-weight:bold; color:#000; display:flex; flex-direction:column; align-items:flex-end;">
+                        <img src="assets/sidi-yaqout-slogan.png" alt="365 يوم من الرعاية" style="height:32px; max-width:145px; object-fit:contain; margin-bottom:4px;" />
+                        <div id="sarki-print-date-badge" style="margin-bottom:3px; white-space:nowrap; color:#334155; font-size:10px;"></div>
+                        <div style="display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:bold; color:#000; border:1px solid #102a45; padding:2px 7px; border-radius:4px; background:#f8fafc; white-space:nowrap;">
+                            <span>التواصل مع الحسابات:</span>
+                            <span id="sarki-contact-phone" style="color:#990012; font-family:Consolas, monospace; font-weight:900; letter-spacing:0.5px;">01285004575</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- جدول بيانات وفلترة السركي مطابق للقسم العلوي من صورة الإكسيل -->
+                <table style="width:100%; border-collapse:collapse; margin-bottom:14px; font-size:12.5px; text-align:right;">
+                    <tr>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9; width:18%;">فلتر الفترة التى يؤخذ منها السركي</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; width:32%;">
+                            <select id="sarki-cycle-select" onchange="onSarkiCycleSelectChanged()" class="sarki-select-input" style="width:100%; font-weight:bold; font-size:12.5px; padding:4px 6px; border:1px solid #94a3b8; border-radius:4px;"></select>
+                            <span id="sarki-cycle-print-text" class="sarki-print-only" style="font-weight:bold;">-</span>
+                            <!-- حقول مخفية لحفظ التواريخ لدعم الدوال البرمجية -->
+                            <input type="date" id="sarki-from" style="display:none;">
+                            <input type="date" id="sarki-to" style="display:none;">
+                        </td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f8fafc; width:18%;">الراتب الاساسي</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; width:32%; background:#fff;">
+                            <div style="font-weight:900; font-size:16px; color:#047857;" id="sarki-box-basic">0.00</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9;">اسم الموظف</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px;">
+                            <select id="sarki-emp-select" onchange="generateSingleSarki()" class="sarki-select-input" style="width:100%; font-weight:bold; font-size:12.5px; padding:4px 6px; border:1px solid #94a3b8; border-radius:4px;"></select>
+                            <span id="sarki-emp-print-text" class="sarki-print-only" style="font-weight:900; font-size:14px;">-</span>
+                        </td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#eff6ff;">الراتب المستحق</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; background:#f0fdf4;">
+                            <div style="font-weight:900; font-size:18px; color:#1d4ed8;" id="sarki-box-net">0.00</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9;">كود الموظف</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:900; font-family:Consolas, monospace;" id="sarki-box-code">-</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9;">القسم</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold;" id="sarki-box-dept">-</td>
+                    </tr>
+                </table>
+
+                <!-- الجداول الثلاثة متجاورة من اليمين إلى اليسار: 1. الراتب الأساسي | 2. الإضافات | 3. الاستقطاعات + عمود التواصل -->
+                <div class="sarki-tables-row" style="display:flex; gap:6px; margin-bottom:10px; align-items:stretch; direction:rtl; width:100%; box-sizing:border-box;">
+                    
+                    <!-- 1. جدول الراتب الأساسي (اليمين) -->
+                    <div class="sarki-col-basic" style="flex:46 1 0; min-width:0; box-sizing:border-box;">
+                        <table style="width:100%; height:100%; border-collapse:collapse; font-size:11.5px; text-align:center;">
+                            <thead>
+                                <tr style="background:#e2e8f0; color:#000;">
+                                    <th colspan="4" style="border:1.5px solid #000; padding:5px; font-size:13px; font-weight:900;">الراتب الاساسي</th>
+                                </tr>
+                                <tr style="background:#f1f5f9; color:#000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:4px 6px; width:40%;">بيان</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:20%; font-size:11px;" title="من شاشة تكويد الموظف">قيمة</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:18%; font-size:11px;" title="من شاشة اجمالي الرواتب">عدد</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:22%; font-size:11px;" title="حاصل ضرب القيمة في العدد">اجمالى</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">ساعات الحضور اليومى الاساسية</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-rate-val">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-basic-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-basic-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">راحات اسبوعية</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-daily-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-off-days">0</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-off-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">اضافي اول ساعة</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-ov1-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-ov1-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ov1-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">اضافي تاني ساعة</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-ov2-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-ov2-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ov2-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">اضافي اكثر من ساعتين</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-ovmore-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-ovmore-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ovmore-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">بدل الاجازات الرسمية</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-hol-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="sarki-hol-days">0</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-hol-wage">0.00</td>
+                                </tr>
+                                <tr style="background:#f1f5f9; font-weight:900;">
+                                    <td style="border:1.5px solid #000; padding:5px 6px; text-align:right;" colspan="3">الاجمالى</td>
+                                    <td style="border:1.5px solid #000; padding:5px; color:#047857; font-family:Consolas, monospace; font-size:12px;" id="sarki-tot-basic-group">0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 2. جدول الإضافات (الوسط) -->
+                    <div class="sarki-col-additions" style="flex:27 1 0; min-width:0; box-sizing:border-box;">
+                        <table style="width:100%; height:100%; border-collapse:collapse; font-size:11.5px; text-align:center;">
+                            <thead>
+                                <tr style="background:#e2e8f0; color:#000;">
+                                    <th colspan="2" style="border:1.5px solid #000; padding:5px; font-size:13px; font-weight:900;">الاضافات</th>
+                                </tr>
+                                <tr style="background:#f1f5f9; color:#000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:4px 6px; width:60%;">بيان</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:40%; font-size:11px;" title="من شاشة تسويات الرواتب">قيمة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">زيارات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-adj-visits">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">كاش باك</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-adj-cashback">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">مكافات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-adj-rewards">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">بدل ادارة</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-adj-admin">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">بونص</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="sarki-adj-bonus">0.00</td>
+                                </tr>
+                                <tr style="background:#f1f5f9; font-weight:900;">
+                                    <td style="border:1.5px solid #000; padding:5px 6px; text-align:right;">الاجمالى</td>
+                                    <td style="border:1.5px solid #000; padding:5px; color:#047857; font-family:Consolas, monospace; font-size:12px;" id="sarki-tot-additions">0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 3. جدول الاستقطاعات (اليسار) -->
+                    <div class="sarki-col-deductions" style="flex:27 1 0; min-width:0; box-sizing:border-box;">
+                        <table style="width:100%; height:100%; border-collapse:collapse; font-size:11.5px; text-align:center;">
+                            <thead>
+                                <tr style="background:#e2e8f0; color:#000;">
+                                    <th colspan="2" style="border:1.5px solid #000; padding:5px; font-size:13px; font-weight:900;">الاستقطاعات</th>
+                                </tr>
+                                <tr style="background:#f1f5f9; color:#000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:4px 6px; width:60%;">بيان</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:40%; font-size:11px;" title="من شاشة تسويات الرواتب">قيمة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">سلف</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ded-advances">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">تأمينات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ded-insurance">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">جزاءات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ded-penalties">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">خصم مستلزمات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ded-supplies">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">استقطاعات أخرى</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="sarki-ded-other">0.00</td>
+                                </tr>
+                                <tr style="background:#f1f5f9; font-weight:900;">
+                                    <td style="border:1.5px solid #000; padding:5px 6px; text-align:right;">الاجمالى</td>
+                                    <td style="border:1.5px solid #000; padding:5px; color:#b91c1c; font-family:Consolas, monospace; font-size:12px;" id="sarki-tot-deductions">0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div>
+
+                <!-- جدول تفاصيل الحضور والانصراف أسفل الشيت -->
+                <div style="margin-top:14px;">
+                    <div style="font-size:13px; font-weight:bold; color:#1e1b4b; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>تفاصيل الحضور والانصراف</span>
+                        <span id="sarki-shifts-count-label" style="font-size:12px; color:#64748b;">عدد الشيفتات: 0</span>
+                    </div>
+                    <div class="table-wrap" style="max-height:360px; overflow-y:auto; border:1.5px solid #000; background:#ffffff;">
+                        <table id="single-sarki-log-table" style="width:100%; border-collapse:collapse; font-size:11.5px; text-align:center; background:#ffffff;">
+                            <thead>
+                                <tr style="background:#ffffff; color:#000000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:15%; color:#000000; background:#ffffff;">التاريخ</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">ساعة الحضور</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">ساعة الانصراف</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:15%; color:#000000; background:#ffffff;">اجمالى الساعات</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">الساعات الاساسية</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">ساعات الاضافي</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">بدل اجازة رسمية</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sarki-tbody" style="background:#ffffff;"></tbody>
+                            <tfoot id="sarki-tfoot" style="background:#ffffff;"></tfoot>
+                        </table>
+                    </div>
+                    <div id="sarki-empty" class="empty-hint" style="display:none; padding:15px; text-align:center; color:#64748b;">يرجى اختيار الموظف ودورة الراتب لعرض بيانات السركي.</div>
+                </div>
+
+            </div>
+        </section>
+ 
+        <!-- ==================== 3.1 شاشة سركي موظف (اطلاع الموظف الذاتي) ==================== -->
+        <section id="screen-employee-sarki" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>📑 سركي وبيان الراتب الخاص بي</h1>
+                    <p>عرض تفاصيل الحضور وساعات العمل والراتب الأساسي والإضافات والاستقطاعات وصافي الراتب المستحق</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printEmployeeSelfSarki()" title="طباعة كشف السركي كاملاً">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportEmployeeSelfSarkiToPdf()" title="حفظ وتنزيل السركي كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- رسالة تنبيه إذا لم يكن الحساب مرتبطاً بموظف -->
+            <div id="emp-sarki-unlinked-warning" class="panel" style="display:none; background:#fef2f2; border:1.5px solid #ef4444; color:#991b1b; padding:16px; font-weight:bold; font-size:14px; text-align:center;">
+                ⚠️ هذا الحساب غير مرتبط بموظف في المنظومة حالياً. يرجى مراجعة إدارة النظام لربط كودك الوظيفي.
+            </div>
+
+            <!-- شريط اختيار دورة الراتب وبطاقات التعريف -->
+            <div class="panel" style="margin-bottom:14px; padding:14px 18px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div class="field" style="min-width:280px;">
+                        <label style="color:var(--accent); font-weight:bold; font-size:13px;">📅 دورة احتساب الراتب (25 إلى 24) *</label>
+                        <select id="emp-sarki-cycle-select" onchange="generateEmployeeSelfSarki()" class="sarki-select-input" style="font-weight:bold; font-size:13px; padding:6px 10px;"></select>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:6px 12px; text-align:center;">
+                            <div style="font-size:11px; color:#64748b;">الموظف</div>
+                            <div id="emp-sarki-fixed-name" style="font-weight:bold; font-size:13px; color:#1e293b;">-</div>
+                        </div>
+                        <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:6px 12px; text-align:center;">
+                            <div style="font-size:11px; color:#64748b;">الكود</div>
+                            <div id="emp-sarki-fixed-code" style="font-weight:bold; font-size:13px; color:var(--accent); font-family:Consolas, monospace;">-</div>
+                        </div>
+                        <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:6px 12px; text-align:center;">
+                            <div style="font-size:11px; color:#64748b;">القسم</div>
+                            <div id="emp-sarki-fixed-dept" style="font-weight:bold; font-size:13px; color:#1e293b;">-</div>
+                        </div>
+                        <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:6px 12px; text-align:center;">
+                            <div style="font-size:11px; color:#64748b;">الشيفت</div>
+                            <div id="emp-sarki-fixed-shift" style="font-weight:bold; font-size:13px; color:#1e293b;">8 س</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- حاوية شيت سركي وبيان الراتب المطابق لنموذج الإكسيل -->
+            <div id="emp-sarki-sheet-wrapper" style="background:#ffffff; color:#000000; border:2px solid #000; border-radius:8px; padding:20px; box-shadow:0 4px 25px rgba(0,0,0,0.4); font-family:Tahoma, Arial, sans-serif;">
+                
+                <!-- عنوان الشيت في المنتصف -->
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2.5px solid #990012; padding-bottom:10px; margin-bottom:14px;">
+                    <div style="min-width:210px; display:flex; align-items:center; gap:8px;">
+                        <img src="assets/sidi-yaqout-logo.png" alt="عيادات سيدي ياقوت" style="height:55px; max-width:185px; object-fit:contain; display:block;" />
+                    </div>
+                    <div style="text-align:center; flex:1;">
+                        <h2 style="font-size:22px; font-weight:900; margin:0; color:#102a45;">سركي وبيان راتب موظف</h2>
+                        <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-top:2px;">
+                            <span style="font-size:13px; color:#990012; font-weight:800;">عيادات سيدي ياقوت التخصصية</span>
+                            <span style="font-size:11.5px; color:#475569; font-weight:600;">• 365 يوم من الرعاية</span>
+                        </div>
+                    </div>
+                    <div style="min-width:210px; text-align:left; font-size:11px; font-weight:bold; color:#000; display:flex; flex-direction:column; align-items:flex-end;">
+                        <img src="assets/sidi-yaqout-slogan.png" alt="365 يوم من الرعاية" style="height:32px; max-width:145px; object-fit:contain; margin-bottom:4px;" />
+                        <div id="emp-sarki-print-date-badge" style="margin-bottom:3px; white-space:nowrap; color:#334155; font-size:10px;"></div>
+                        <div style="display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:bold; color:#000; border:1px solid #102a45; padding:2px 7px; border-radius:4px; background:#f8fafc; white-space:nowrap;">
+                            <span>التواصل مع الحسابات:</span>
+                            <span style="color:#990012; font-family:Consolas, monospace; font-weight:900; letter-spacing:0.5px;">01285004575</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- جدول بيانات وفلترة السركي مطابق للنموذج المعتمد -->
+                <table style="width:100%; border-collapse:collapse; margin-bottom:14px; font-size:12.5px; text-align:right;">
+                    <tr>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9; width:18%;">فترة السركي</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; width:32%;">
+                            <span id="emp-sarki-cycle-print-text" style="font-weight:bold;">-</span>
+                        </td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f8fafc; width:18%;">الراتب الاساسي</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; width:32%; background:#fff;">
+                            <div style="font-weight:900; font-size:16px; color:#047857;" id="emp-sarki-box-basic">0.00</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9;">اسم الموظف</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px;">
+                            <span id="emp-sarki-box-name" style="font-weight:900; font-size:14px;">-</span>
+                        </td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#eff6ff;">الراتب المستحق (الصافي)</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; background:#f0fdf4;">
+                            <div style="font-weight:900; font-size:18px; color:#1d4ed8;" id="emp-sarki-box-net">0.00</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9;">كود الموظف</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:900; font-family:Consolas, monospace;" id="emp-sarki-box-code">-</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold; background:#f1f5f9;">القسم</td>
+                        <td style="border:1.5px solid #000; padding:6px 10px; font-weight:bold;" id="emp-sarki-box-dept">-</td>
+                    </tr>
+                </table>
+
+                <!-- الجداول الثلاثة متجاورة من اليمين إلى اليسار -->
+                <div class="sarki-tables-row" style="display:flex; gap:6px; margin-bottom:10px; align-items:stretch; direction:rtl; width:100%; box-sizing:border-box;">
+                    
+                    <!-- 1. جدول الراتب الأساسي (اليمين) -->
+                    <div class="sarki-col-basic" style="flex:46 1 0; min-width:0; box-sizing:border-box;">
+                        <table style="width:100%; height:100%; border-collapse:collapse; font-size:11.5px; text-align:center;">
+                            <thead>
+                                <tr style="background:#e2e8f0; color:#000;">
+                                    <th colspan="4" style="border:1.5px solid #000; padding:5px; font-size:13px; font-weight:900;">الراتب الاساسي</th>
+                                </tr>
+                                <tr style="background:#f1f5f9; color:#000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:4px 6px; width:40%;">بيان</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:20%; font-size:11px;">قيمة</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:18%; font-size:11px;">عدد</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:22%; font-size:11px;">اجمالى</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">ساعات الحضور اليومى الاساسية</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-rate-val">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-basic-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-basic-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">راحات اسبوعية</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-daily-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-off-days">0</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-off-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">اضافي اول ساعة</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-ov1-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-ov1-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ov1-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">اضافي تاني ساعة</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-ov2-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-ov2-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ov2-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">اضافي اكثر من ساعتين</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-ovmore-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-ovmore-hrs">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ovmore-wage">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right; font-weight:bold;">بدل الاجازات الرسمية</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-hol-rate">0.00</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-family:Consolas, monospace;" id="emp-sarki-hol-days">0</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-hol-wage">0.00</td>
+                                </tr>
+                                <tr style="background:#f1f5f9; font-weight:900;">
+                                    <td style="border:1.5px solid #000; padding:5px 6px; text-align:right;" colspan="3">الاجمالى</td>
+                                    <td style="border:1.5px solid #000; padding:5px; color:#047857; font-family:Consolas, monospace; font-size:12px;" id="emp-sarki-tot-basic-group">0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 2. جدول الإضافات (الوسط) -->
+                    <div class="sarki-col-additions" style="flex:27 1 0; min-width:0; box-sizing:border-box;">
+                        <table style="width:100%; height:100%; border-collapse:collapse; font-size:11.5px; text-align:center;">
+                            <thead>
+                                <tr style="background:#e2e8f0; color:#000;">
+                                    <th colspan="2" style="border:1.5px solid #000; padding:5px; font-size:13px; font-weight:900;">الاضافات</th>
+                                </tr>
+                                <tr style="background:#f1f5f9; color:#000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:4px 6px; width:60%;">بيان</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:40%; font-size:11px;">قيمة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">زيارات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-adj-visits">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">كاش باك</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-adj-cashback">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">مكافات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-adj-rewards">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">بدل ادارة</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-adj-admin">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">بونص</td>
+                                    <td style="border:1.5px solid #000; padding:4px; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-adj-bonus">0.00</td>
+                                </tr>
+                                <tr style="background:#f1f5f9; font-weight:900;">
+                                    <td style="border:1.5px solid #000; padding:5px 6px; text-align:right;">الاجمالى</td>
+                                    <td style="border:1.5px solid #000; padding:5px; color:#047857; font-family:Consolas, monospace; font-size:12px;" id="emp-sarki-tot-additions">0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 3. جدول الاستقطاعات (اليسار) -->
+                    <div class="sarki-col-deductions" style="flex:27 1 0; min-width:0; box-sizing:border-box;">
+                        <table style="width:100%; height:100%; border-collapse:collapse; font-size:11.5px; text-align:center;">
+                            <thead>
+                                <tr style="background:#e2e8f0; color:#000;">
+                                    <th colspan="2" style="border:1.5px solid #000; padding:5px; font-size:13px; font-weight:900;">الاستقطاعات</th>
+                                </tr>
+                                <tr style="background:#f1f5f9; color:#000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:4px 6px; width:60%;">بيان</th>
+                                    <th style="border:1.5px solid #000; padding:4px; width:40%; font-size:11px;">قيمة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">سلف</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ded-advances">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">تأمينات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ded-insurance">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">جزاءات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ded-penalties">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">خصم مستلزمات</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ded-supplies">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border:1.5px solid #000; padding:4px 6px; text-align:right;">استقطاعات أخرى</td>
+                                    <td style="border:1.5px solid #000; padding:4px; color:#b91c1c; font-weight:bold; font-family:Consolas, monospace;" id="emp-sarki-ded-other">0.00</td>
+                                </tr>
+                                <tr style="background:#f1f5f9; font-weight:900;">
+                                    <td style="border:1.5px solid #000; padding:5px 6px; text-align:right;">الاجمالى</td>
+                                    <td style="border:1.5px solid #000; padding:5px; color:#b91c1c; font-family:Consolas, monospace; font-size:12px;" id="emp-sarki-tot-deductions">0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div>
+
+                <!-- جدول تفاصيل الحضور والانصراف أسفل الشيت -->
+                <div style="margin-top:14px;">
+                    <div style="font-size:13px; font-weight:bold; color:#1e1b4b; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>تفاصيل الحضور والانصراف خلال فترة الراتب</span>
+                        <span id="emp-sarki-shifts-count-label" style="font-size:12px; color:#64748b;">عدد الشيفتات: 0</span>
+                    </div>
+                    <div class="table-wrap" style="max-height:360px; overflow-y:auto; border:1.5px solid #000; background:#ffffff;">
+                        <table id="emp-sarki-log-table" style="width:100%; border-collapse:collapse; font-size:11.5px; text-align:center; background:#ffffff;">
+                            <thead>
+                                <tr style="background:#ffffff; color:#000000; font-weight:bold;">
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:15%; color:#000000; background:#ffffff;">التاريخ</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">ساعة الحضور</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">ساعة الانصراف</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:15%; color:#000000; background:#ffffff;">اجمالى الساعات</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">الساعات الاساسية</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">ساعات الاضافي</th>
+                                    <th style="border:1.5px solid #000; padding:5px 6px; width:14%; color:#000000; background:#ffffff;">بدل اجازة رسمية</th>
+                                </tr>
+                            </thead>
+                            <tbody id="emp-sarki-tbody" style="background:#ffffff;"></tbody>
+                            <tfoot id="emp-sarki-tfoot" style="background:#ffffff;"></tfoot>
+                        </table>
+                    </div>
+                    <div id="emp-sarki-empty" class="empty-hint" style="display:none; padding:15px; text-align:center; color:#64748b;">لا توجد سجلات حضور مسجلة لهذا الشهر.</div>
+                </div>
+
+            </div>
+        </section>
+
+
+        <!-- ==================== 5. تقارير إجمالي الموظفين ==================== -->
+        <section id="screen-totals-report" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>📊 تقارير إجمالي الموظفين والأقسام</h1>
+                    <p>مصفوفة مقارنة شاملة لتوزيع الساعات، تكلفة الأقسام، الإضافي والراحات الأسبوعية بالأرقام والنسب</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printTotalsReport()" title="طباعة تقرير إجمالي الموظفين والأقسام">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('dept-summary-table', 'تقرير_إجمالي_الموظفين_والأقسام')" title="تصدير جدول الأقسام إلى Excel">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportTotalsReportToPdf()" title="تصدير التقرير كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- شريط تصفية شهر الراتب -->
+            <div class="panel" style="margin-bottom:15px; padding:14px 18px;">
+                <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end;">
+                    <div class="field" style="flex:1.5; min-width:320px; max-width:480px; margin-bottom:0;">
+                        <label style="font-weight:bold; color:var(--accent); font-size:12px; display:block; margin-bottom:5px;">
+                            📅 تصفية حسب شهر الراتب (من 25 إلى 24):
+                        </label>
+                        <select id="totals-report-cycle-select" onchange="renderTotalsReport()" style="width:100%; font-weight:bold; font-size:12.5px; padding:8px 10px; border-radius:6px; background:var(--bg-body); color:var(--text-main); border:1px solid var(--border);">
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card card-blue">
+                    <h4>إجمالي تكلفة ساعات المؤسسة</h4>
+                    <div class="val" style="color:var(--success);" id="rep-tot-sal">0.00 ج.م</div>
+                </div>
+                <div class="kpi-card card-purple">
+                    <h4>إجمالي الساعات المشغولة</h4>
+                    <div class="val" style="color:var(--accent);" id="rep-tot-hrs">0.00 ساعة</div>
+                </div>
+                <div class="kpi-card card-orange">
+                    <h4>إجمالي حركات الحضور</h4>
+                    <div class="val" style="color:var(--warning);" id="rep-tot-ops">0 حركة</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>مصفوفة إجمالي الموظفين والأقسام (القيمة والنسبة المئوية لكل بند)</span>
+                </div>
+                <div class="table-wrap">
+                    <table id="dept-summary-table" style="min-width:100%; border-collapse:collapse;">
+                        <thead id="dept-summary-thead"></thead>
+                        <tbody id="dept-summary-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 6. تسليم وصرف الرواتب ==================== -->
+        <section id="screen-payroll-delivery" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>💵 شاشة صرف وتسليم الرواتب</h1>
+                    <p>متابعة واعتماد تسليم وصرف رواتب الموظفين مع تسوية الأرقام الفردية وتسجيل التوقيعات</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <button type="button" class="btn-header-icon btn-header-undo" onclick="switchScreen(previousScreenBeforeDelivery || 'screen-bulk-payslips', null)" title="رجوع">↩️</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="savePayrollDeliveryData()" title="حفظ بيانات التسليم">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printPayrollDeliveryTable()" title="طباعة كشف تسليم الرواتب">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('delivery-table', 'كشف_صرف_وتسليم_الرواتب')" title="تصدير كشف تسليم الرواتب إلى Excel">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportDeliveryToPdf()" title="تصدير كشف تسليم الرواتب كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- شريط فلاتر الفترة والأقسام والبحث -->
+            <div class="panel" style="margin-bottom:15px; padding:14px 18px;">
+                <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end;">
+                    <div class="field" style="flex:1.2; min-width:280px; max-width:440px; margin-bottom:0;">
+                        <label style="font-weight:bold; color:var(--text-main); font-size:12px; display:block; margin-bottom:5px;">
+                            📅 فلتر دورة الراتب (الفترة من 25 إلى 24):
+                        </label>
+                        <select id="delivery-cycle-select" onchange="renderPayrollDelivery()" style="width:100%; font-weight:bold; font-size:12px; padding:8px 10px; border-radius:6px; background:var(--bg-body); color:var(--text-main); border:1px solid var(--border);">
+                        </select>
+                    </div>
+
+                    <div class="field" style="flex:1; min-width:180px; max-width:240px; margin-bottom:0;">
+                        <label style="font-weight:bold; color:var(--text-main); font-size:12px; display:block; margin-bottom:5px;">
+                            🏢 تصفية حسب القسم:
+                        </label>
+                        <select id="delivery-dept-filter" onchange="renderPayrollDelivery()" style="width:100%; font-size:12px; padding:8px 10px; border-radius:6px; background:var(--bg-body); color:var(--text-main); border:1px solid var(--border);">
+                            <option value="">جميع الأقسام</option>
+                        </select>
+                    </div>
+
+                    <div class="field" style="flex:1.5; min-width:220px; margin-bottom:0;">
+                        <label style="font-weight:bold; color:var(--text-main); font-size:12px; display:block; margin-bottom:5px;">
+                            🔍 بحث سريع بالموظف:
+                        </label>
+                        <input type="text" id="delivery-search" placeholder="بحث بالاسم أو الكود..." onkeyup="renderPayrollDelivery()" style="width:100%; font-size:12px; padding:8px 10px; border-radius:6px; background:var(--bg-body); color:var(--text-main); border:1px solid var(--border);">
+                    </div>
+                </div>
+            </div>
+
+            <!-- بطاقات الإحصائيات العامة -->
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <h4>عدد الموظفين المستحقين</h4>
+                    <div class="val" style="color:var(--accent);" id="delivery-stat-count">0 موظف</div>
+                </div>
+                <div class="kpi-card">
+                    <h4>إجمالي الصافي (قبل التسوية)</h4>
+                    <div class="val" style="color:#a855f7;" id="delivery-stat-net">0.00 ج.م</div>
+                </div>
+                <div class="kpi-card">
+                    <h4>إجمالي الرواتب بعد التسوية</h4>
+                    <div class="val" style="color:var(--text-main);" id="delivery-stat-settled">0.00 ج.م</div>
+                </div>
+                <div class="kpi-card">
+                    <h4>إجمالي المنصرف والمسدد</h4>
+                    <div class="val" style="color:var(--success);" id="delivery-stat-paid">0.00 ج.م</div>
+                </div>
+                <div class="kpi-card">
+                    <h4>المتبقي قيد الصرف</h4>
+                    <div class="val" style="color:var(--danger);" id="delivery-stat-pending">0.00 ج.م</div>
+                </div>
+            </div>
+
+            <!-- جدول تسليم وصرف الرواتب بالمواصفات المطلوبة -->
+            <div class="panel">
+                <div class="panel-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>سجل تسليم وصرف رواتب الموظفين للدورة المحددة</span>
+                    <span id="delivery-cycle-badge" style="font-size:11px; background:linear-gradient(135deg, #990012, #102a45); color:#fff; padding:3px 10px; border-radius:12px; font-weight:bold;"></span>
+                </div>
+                <div class="table-wrap">
+                    <table id="delivery-table">
+                        <thead>
+                            <tr>
+                                <th style="width:75px; text-align:center;">كود الموظف</th>
+                                <th style="min-width:150px; text-align:right;">اسم الموظف</th>
+                                <th style="width:105px; text-align:center;">القسم</th>
+                                <th style="width:110px; text-align:center;">صافي الراتب</th>
+                                <th style="width:110px; text-align:center; background:rgba(16, 185, 129, 0.15); color:#10b981;">تسوية الراتب</th>
+                                <th style="width:150px; text-align:center;">المستلم</th>
+                                <th style="width:110px; text-align:center;">تم الصرف</th>
+                            </tr>
+                        </thead>
+                        <tbody id="delivery-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 7. تقرير عام لموظف ==================== -->
+        <section id="screen-emp-general-report" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>👤 تقرير عام لموظف</h1>
+                    <p>كشف الحساب التراكمي الشامل لمستحقات ورواتب الموظف المسددة والمعلقة</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printEmployeeGeneralReport()" title="طباعة التقرير العام">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('emp-ledger-table', 'تقرير_عام_لموظف')" title="تصدير جدول التقرير إلى Excel">📊</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportEmployeeGeneralReportToPdf()" title="تصدير التقرير العام كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="field" style="max-width:340px;">
+                    <label style="font-weight:bold; color:var(--accent); margin-bottom:5px;">اختر الموظف لعرض تقريره العام:</label>
+                    <select id="rep-emp-profile-select" onchange="renderEmployeeGeneralReport()" style="font-weight:bold; font-size:13px; padding:8px 10px;">
+                        <option value="">-- اختر موظف --</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="emp-profile-content" style="display:none;">
+                <div class="kpi-grid">
+                    <div class="kpi-card card-blue">
+                        <h4>القسم والوظيفة</h4>
+                        <div class="val" style="color:var(--accent);" id="prof-job">-</div>
+                    </div>
+                    <div class="kpi-card card-purple">
+                        <h4>إجمالي المستحق لكافة الفترات</h4>
+                        <div class="val" style="color:var(--purple);" id="prof-due-total">0.00 ج.م</div>
+                    </div>
+                    <div class="kpi-card card-green">
+                        <h4>إجمالي المنصرف حقيقة</h4>
+                        <div class="val" style="color:var(--success);" id="prof-paid-total">0.00 ج.م</div>
+                    </div>
+                    <div class="kpi-card card-orange">
+                        <h4>صافي الرصيد المتبقي</h4>
+                        <div class="val" style="color:var(--warning);" id="prof-balance-total">0.00 ج.م</div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>كشف حساب مجمع بمستحقات ورواتب الموظف المسددة والمعلقة</span>
+                        <span id="prof-emp-badge" style="font-size:12px; background:rgba(56, 189, 248, 0.15); color:var(--accent); padding:3px 12px; border-radius:12px; font-weight:bold;"></span>
+                    </div>
+                    <div class="table-wrap">
+                        <table id="emp-ledger-table" style="font-size:11.5px; width:max-content; min-width:100%;">
+                            <thead>
+                                <tr>
+                                    <th style="min-width:140px; text-align:right;">اسم فترة الراتب</th>
+                                    
+                                    <!-- قيم الاستحقاقات الأساسية والإضافي والراحات -->
+                                    <th style="min-width:90px; color:#10b981;">قيمة الساعات الأساسية</th>
+                                    <th style="min-width:90px; color:#047857; font-weight:bold;">قيمة إجمالي الإضافي</th>
+                                    <th style="min-width:85px; color:#f59e0b; font-weight:bold;">قيمة أيام الراحات</th>
+
+                                    <!-- بنود التسويات: الإضافات زي ما هي -->
+                                    <th style="min-width:60px; color:#10b981;">زيارات</th>
+                                    <th style="min-width:60px; color:#10b981;">كاش باك</th>
+                                    <th style="min-width:60px; color:#10b981;">مكافآت</th>
+                                    <th style="min-width:65px; color:#10b981;">بدل إدارة</th>
+                                    <th style="min-width:60px; color:#10b981;">بونص</th>
+                                    <th style="min-width:80px; color:#10b981; font-weight:bold; background:rgba(16,185,129,0.1);">إجمالي الإضافات</th>
+
+                                    <!-- بنود التسويات: الاستقطاعات زي ما هي -->
+                                    <th style="min-width:60px; color:#ef4444;">سلف</th>
+                                    <th style="min-width:60px; color:#ef4444;">جزاءات</th>
+                                    <th style="min-width:60px; color:#ef4444;">تأمينات</th>
+                                    <th style="min-width:70px; color:#ef4444;">مستلزمات</th>
+                                    <th style="min-width:75px; color:#ef4444;">خصومات أخرى</th>
+                                    <th style="min-width:80px; color:#ef4444; font-weight:bold; background:rgba(239,68,68,0.1);">إجمالي الخصومات</th>
+
+                                    <!-- صافي الراتب المستحق والمستلم والرصيد -->
+                                    <th style="min-width:105px; color:#a855f7; font-weight:800; background:rgba(168,85,247,0.15);">صافي المستحق</th>
+                                    <th style="min-width:100px; color:#059669; font-weight:800; background:rgba(5,150,105,0.15);">المنصرف فعلياً</th>
+                                    <th style="min-width:105px; color:#1d4ed8; font-weight:900; background:rgba(37,99,235,0.18);">الرصيد المتبقي</th>
+                                </tr>
+                            </thead>
+                            <tbody id="emp-ledger-tbody"></tbody>
+                            <tfoot id="emp-ledger-tfoot"></tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 9b. شاشة طباعة سركي الموظفين المجمعة (Bulk Payslips) ==================== -->
+        <section id="screen-bulk-payslips" class="screen-view">
+            <div class="content-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                <div>
+                    <h1 style="margin:0; font-size:22px; font-weight:900;">🖨️ طباعة سركي الموظفين المجمعة</h1>
+                    <p style="margin:4px 0 0 0; color:var(--text-muted, #94a3b8); font-size:13px;">طباعة سراكي رواتب جميع الموظفين المستحقين للشهر المحدد (3 سراكي في كل صفحة A4)</p>
+                </div>
+                <!-- الأزرار على يسار الشاشة -->
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <button type="button" class="btn-header-icon btn-header-undo" onclick="bulkPayslipsGoBack()" title="الرجوع للشاشة السابقة">↩️</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="saveBulkPayslipsData()" title="حفظ واعتماد بيانات السراكي">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-print" onclick="printBulkPayslips()" title="طباعة السراكي (3 سراكي بالصفحة A4)">🖨️</button>
+                    <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportBulkPayslipsToPdf()" title="تصدير السراكي كملف PDF مباشرة">📄</button>
+                </div>
+            </div>
+
+            <!-- لوحة التحكم واختيار دورة الراتب -->
+            <div class="batch-selector-box" style="margin-bottom:18px; background:#ffffff; border:1.5px solid #e2e8f0; box-shadow:0 2px 8px rgba(0,0,0,0.02); border-radius:8px; padding:14px;">
+                <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+                    <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+                        <div class="field" style="min-width:320px;">
+                            <label style="color:var(--accent, #38bdf8); font-weight:bold; font-size:13px; display:block; margin-bottom:5px;">📅 دورة احتساب الراتب (25 إلى 24) *</label>
+                            <select id="bulk-payslips-cycle-select" onchange="renderBulkEmployeePayslips()" style="width:100%; font-weight:bold; font-size:13px; padding:7px 10px; border-radius:6px; border:1px solid #94a3b8;"></select>
+                        </div>
+                        <div class="field" style="min-width:180px;">
+                            <label style="color:var(--text-muted, #94a3b8); font-weight:bold; font-size:13px; display:block; margin-bottom:5px;">القسم / الإدارة (اختياري)</label>
+                            <select id="bulk-payslips-dept-filter" onchange="renderBulkEmployeePayslips()" style="width:100%; font-size:13px; padding:7px 10px; border-radius:6px; border:1px solid #94a3b8;">
+                                <option value="">جميع الأقسام</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span id="bulk-payslips-count-badge" class="badge" style="background:linear-gradient(135deg, #990012, #102a45); color:#fff; font-size:13px; font-weight:bold; padding:8px 14px; border-radius:6px;">الموظفين المستحقين: 0 موظف (0 صفحة A4)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- حاوية عرض السراكي المجمعة للموظفين -->
+            <div id="bulk-payslips-container">
+                <!-- يتم توليد السراكي ديناميكياً هنا -->
+            </div>
+            <div id="bulk-payslips-empty" class="empty-hint" style="display:none; text-align:center; padding:30px; font-weight:bold; color:#64748b;">
+                يرجى اختيار دورة الراتب لعرض سراكي الموظفين المستحقين.
+            </div>
+        </section>
+
+        <!-- ==================== 10. شاشة النسخ الاحتياطي واستعادة البيانات ==================== -->
+        <section id="screen-backup-restore" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>💾 شاشة النسخ الاحتياطي وإدارة قواعد البيانات</h1>
+                    <p>تأمين وحفظ بيانات المنظومة، إنشاء نسخ احتياطية شاملة بملفات خارجية، واستعادتها في أي وقت بسهولة</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-success" style="font-size:12px; padding:7px 16px;" onclick="exportFullBackupJSON()">💾 تصدير نسخة احتياطية الآن</button>
+                </div>
+            </div>
+
+            <!-- بطاقات النسخ الاحتياطي والإحصائيات -->
+            <div class="backup-grid">
+                <!-- كارت التصدير -->
+                <div class="backup-card" style="border-top:4px solid var(--accent);">
+                    <div>
+                        <h3><span>💾</span> تصدير نسخة احتياطية شاملة</h3>
+                        <p>تنزيل ملف JSON يحتوي على كامل قاعدة البيانات (سجلات الموظفين، الحضور والانصراف، التسويات، الدورات، وحسابات الرواتب) لحفظها على فلاشة أو قرص خارجي بأمان.</p>
+                        
+                        <div style="margin:16px 0; background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:8px; padding:12px; font-size:12.5px; display:flex; flex-direction:column; gap:6px;">
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-muted);">إجمالي الموظفين:</span>
+                                <strong id="bk-stat-emp" style="color:var(--accent);">0 موظف</strong>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-muted);">حركات الحضور المسجلة:</span>
+                                <strong id="bk-stat-att" style="color:var(--success);">0 حركة</strong>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-muted);">دورات التسويات النشطة:</span>
+                                <strong id="bk-stat-adj" style="color:var(--warning);">0 دورة</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-direction:column;">
+                        <button type="button" class="btn-primary" style="justify-content:center; font-size:13px;" onclick="exportFullBackupJSON()">
+                            💾 تحميل ملف النسخة الاحتياطية (.json)
+                        </button>
+                        <button type="button" class="btn-secondary" style="justify-content:center; font-size:12px;" onclick="exportConsolidatedExcelBackup()">
+                            📊 تصدير قاعدة البيانات كإكسيل شامل (.xls)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- كارت الاستعادة -->
+                <div class="backup-card" style="border-top:4px solid var(--success);">
+                    <div>
+                        <h3><span>🔄</span> استعادة نسخة احتياطية من ملف</h3>
+                        <p>استرجاع كافة بيانات المنظومة من ملف نسخة احتياطية سابق (.json). يمكنك معاينة بيانات الملف وفحص عدد الموظفين والسجلات قبل الموافقة على الاستعادة.</p>
+
+                        <div class="backup-drop-zone" onclick="document.getElementById('backup-file-input').click()" style="margin:16px 0;">
+                            <span style="font-size:28px;">📂</span>
+                            <div style="font-size:13px; font-weight:bold; color:var(--accent); margin-top:4px;">اضغط هنا لاختيار ملف النسخة الاحتياطية</div>
+                            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">يقبل ملفات النسخ بتنسيق JSON الصادرة من المنظومة</div>
+                            <input type="file" id="backup-file-input" accept=".json" style="display:none;" onchange="onBackupFileSelected(this)">
+                        </div>
+
+                        <div id="backup-file-preview-card" style="display:none; background:#f0fdf4; border:1.5px solid #86efac; border-radius:8px; padding:10px; font-size:12px; margin-bottom:12px;">
+                            <div style="color:#10b981; font-weight:bold; margin-bottom:4px;">✔ تم التحقق من سلامة الملف:</div>
+                            <div id="backup-file-preview-info" style="color:var(--text-muted);"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" id="btn-confirm-restore" class="btn-success" style="width:100%; justify-content:center; font-size:13px; opacity:0.5; pointer-events:none;" onclick="confirmAndExecuteRestore()">
+                            🔄 اعتماد واستعادة قاعدة البيانات الآن
+                        </button>
+                    </div>
+                </div>
+
+                <!-- كارت إعادة الضبط والحماية -->
+                <div class="backup-card" style="border-top:4px solid var(--danger);">
+                    <div>
+                        <h3><span>🛡️</span> إدارة التطهير وضبط المصنع</h3>
+                        <p>أدوات الطوارئ لاستعادة بيانات العيادات الافتراضية (34 موظف) أو تصفير حركات الحضور المسجلة مع حماية أمنية مشددة تتطلب كلمة تأكيد.</p>
+
+                        <div style="margin:14px 0; display:flex; flex-direction:column; gap:8px;">
+                            <button type="button" class="btn-secondary" style="font-size:12px; justify-content:flex-start;" onclick="resetToInitialData()">
+                                🔁 استرجاع قاعدة بيانات الـ 34 موظف الأصلية
+                            </button>
+                            <button type="button" class="btn-warning" style="font-size:12px; justify-content:flex-start;" onclick="clearAttendanceOnlyPrompt()">
+                                ⏱️ مسح سجلات الحضور والانصراف فقط
+                            </button>
+                            <button type="button" class="btn-warning" style="font-size:12px; justify-content:flex-start;" onclick="clearAdjustmentsOnlyPrompt()">
+                                ⚖️ مسح معاملات تسويات الرواتب فقط
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" class="btn-danger" style="width:100%; justify-content:center; font-size:12.5px; padding:8px;" onclick="factoryResetPrompt()">
+                            ⚠️ إعادة ضبط المصنع ومسح كافة البيانات
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 11. شاشة المستخدمين والصلاحيات ==================== -->
+        <section id="screen-users-roles" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>🔐 إدارة المستخدمين وصلاحيات المنظومة</h1>
+                    <p>التحكم في أدوار ومستويات الوصول (مدير النظام، الحسابات، مشرف الحضور) وتأمين الشاشات المحاسبية</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-warning" style="font-size:12px; padding:7px 15px;" onclick="lockScreenModal()">🔒 قفل المنظومة الآن</button>
+                </div>
+            </div>
+
+            <!-- نموذج إضافة أو تعديل مستخدم -->
+            <div class="panel" style="margin-bottom:18px;">
+                <div class="panel-title">
+                    <span>➕ إضافة مستخدم جديد للنظام</span>
+                    <span style="font-size:12px; color:var(--text-muted);">كلمات المرور والـ PIN مخزنة محلياً بأمان</span>
+                </div>
+                <form id="user-create-form" onsubmit="handleCreateUser(event)">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>اسم المستخدم (لتسجيل الدخول) *</label>
+                            <input type="text" id="new-user-username" placeholder="مثال: ahmed_admin" required>
+                        </div>
+                        <div class="field">
+                            <label>الاسم الظاهر بالمنظومة *</label>
+                            <input type="text" id="new-user-fullname" placeholder="مثال: أ. أحمد عبد العزيز" required>
+                        </div>
+                        <div class="field">
+                            <label>الدور ومستوى الصلاحية *</label>
+                            <select id="new-user-role" required onchange="onNewUserRoleChanged()">
+                                <option value="admin">مدير النظام (Admin) - صلاحية كاملة على كل شيء</option>
+                                <option value="accountant">مسؤول الحسابات (Accountant) - السراكي والتسويات والرواتب</option>
+                                <option value="supervisor">مشرف الحضور (Supervisor) - تسجيل الحضور واليومية فقط</option>
+                                <option value="employee">موظف (Employee) - سركي الموظف الخاص به فقط</option>
+                            </select>
+                        </div>
+                        <div class="field" id="new-user-employee-wrapper" style="display:none;">
+                            <label style="color:var(--accent); font-weight:bold;">الموظف المرتبط بهذا الحساب *</label>
+                            <select id="new-user-employee-select" onchange="onNewUserEmployeeSelected()">
+                                <option value="">-- اختر الموظف لربطه بالحساب --</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>كلمة المرور / الرمز السري (PIN) *</label>
+                            <input type="password" id="new-user-password" placeholder="أرقام أو حروف سرية" required>
+                        </div>
+                    </div>
+                    <div class="actions" style="margin-top:14px;">
+                        <button type="submit" class="btn-primary" style="flex:1;">💾 حفظ وإضافة المستخدم</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- جدول المستخدمين المسجلين في المنظومة -->
+            <div class="panel">
+                <div class="panel-title">
+                    <span>👥 قائمة المستخدمين المصرح لهم بالدخول</span>
+                    <span style="font-size:12px; color:var(--accent);">المستخدم النشط حالياً معلم بإشارة خضراء</span>
+                </div>
+                <div class="table-wrap">
+                    <table id="users-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>اسم المستخدم</th>
+                                <th>الاسم الظاهر</th>
+                                <th>مستوى الصلاحية</th>
+                                <th>كلمة المرور / الرمز</th>
+                                <th>تاريخ الإنشاء</th>
+                                <th>الحالة الحالية</th>
+                                <th>إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 12. شاشة الربط السحابي مع Firebase ==================== -->
+        <section id="screen-firebase-settings" class="screen-view">
+            <div class="content-header">
+                <div>
+                    <h1>☁️ إعدادات الربط والمزامنة السحابية مع Firebase</h1>
+                    <p>ربط المنظومة بسيرفرات Google Firebase للعمل المتزامن واللحظي بين كافة الأجهزة والعيادات مع الحفظ الأوفلاين التلقائي</p>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn-secondary" style="font-size:12px; padding:7px 14px;" onclick="testFirebaseConnection()" title="فحص جودة الاتصال بسيرفرات Firebase">🔄 فحص الاتصال</button>
+                    <button type="button" class="btn-success" style="font-size:12px; padding:7px 16px;" onclick="uploadAllDataToFirebase()" title="رفع كافة الموظفين وحركات الحضور والتسويات إلى السحابة فوراً">⬆️ رفع البيانات للسحابة</button>
+                    <button type="button" class="btn-primary" style="font-size:12px; padding:7px 16px;" onclick="downloadAllDataFromFirebase()" title="سحب وتحديث كافة البيانات من السحابة إلى هذا الجهاز">⬇️ سحب البيانات من السحابة</button>
+                </div>
+            </div>
+
+            <!-- بطاقة ملخص حالة الاتصال بالسحابة -->
+            <div class="kpi-grid">
+                <div class="kpi-card card-blue">
+                    <h4>📡 حالة الاتصال السحابي</h4>
+                    <div class="val" id="fb-live-status-val" style="font-size:17px; color:var(--text-muted); display:flex; align-items:center; gap:8px;">
+                        <span class="pulse-dot pulse-gray" id="fb-card-dot"></span>
+                        <span id="fb-card-status-text">غير مهيأ (وضع محلي)</span>
+                    </div>
+                    <div class="sub-text" id="fb-card-status-sub">المنظومة تعمل محلياً على هذا الجهاز</div>
+                </div>
+
+                <div class="kpi-card card-purple">
+                    <h4>🆔 معرف المشروع (Project ID)</h4>
+                    <div class="val" id="fb-project-id-val" style="font-size:18px; color:var(--purple); font-family:Consolas, monospace;">-</div>
+                    <div class="sub-text">اسم مشروعك على Google Firebase</div>
+                </div>
+
+                <div class="kpi-card card-green">
+                    <h4>⚡ المزامنة اللحظية الحية</h4>
+                    <div class="val" id="fb-realtime-status-val" style="font-size:18px; color:var(--success);">متوقفة ⚪</div>
+                    <div class="sub-text" id="fb-realtime-sub">تحديث فوري بين الأجهزة عند تفعيلها</div>
+                </div>
+
+                <div class="kpi-card card-orange">
+                    <h4>⏱️ آخر مزامنة سحابية ناجحة</h4>
+                    <div class="val" id="fb-last-sync-val" style="font-size:16px; color:var(--warning);">لم تتم بعد</div>
+                    <div class="sub-text" id="fb-last-sync-sub">تاريخ وساعة آخر تبادل بيانات</div>
+                </div>
+            </div>
+
+            <!-- لوحة إدخال وتعديل بيانات Firebase -->
+            <div class="panel" style="margin-bottom:20px;">
+                <div class="panel-title">
+                    <span>⚙️ بيانات اعتماد مشروع Firebase (Firebase Config Credentials)</span>
+                    <span style="font-size:12px; color:var(--accent);">بياناتك مشفرة ومحفوظة بأمان محلياً</span>
+                </div>
+
+                <!-- خيار اللصق السريع لكود firebaseConfig بالكامل -->
+                <div style="background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:10px; padding:16px; margin-bottom:18px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <label style="color:var(--accent); font-weight:bold; font-size:13px;">
+                            📋 لصق كود الإعدادات المباشر (Paste Firebase Config)
+                        </label>
+                        <button type="button" class="btn-secondary" style="font-size:11.5px; padding:4px 10px;" onclick="parsePastedFirebaseConfig()">
+                            ⚡ استخراج وملء الحقول تلقائياً
+                        </button>
+                    </div>
+                    <p style="font-size:11.5px; color:var(--text-muted); margin-bottom:8px;">
+                        يمكنك نسخ كود <code>const firebaseConfig = { ... }</code> بالكامل من Firebase Console ولصقه هنا مباشرة، وسيقوم النظام باستخراج كافة المفاتيح آلياً:
+                    </p>
+                    <textarea id="fb-raw-config-input" rows="4" placeholder='const firebaseConfig = {
+  apiKey: "AIzaSy...",
+  authDomain: "sidi-yaqout.firebaseapp.com",
+  projectId: "sidi-yaqout",
+  storageBucket: "sidi-yaqout.appspot.com",
+  messagingSenderId: "...",
+  appId: "..."
+};' style="width:100%; background:#ffffff; border:1.5px solid #cbd5e1; border-radius:8px; padding:10px; color:#1e1b4b; font-family:Consolas, monospace; font-size:12px; outline:none; resize:vertical;"></textarea>
+                </div>
+
+                <!-- نموذج الحقول التفصيلية -->
+                <form id="firebase-settings-form" onsubmit="handleSaveFirebaseSettings(event)">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>مفتاح الـ API (apiKey) *</label>
+                            <input type="text" id="fb-api-key" placeholder="AIzaSy..." required>
+                        </div>
+                        <div class="field">
+                            <label>معرف المشروع (projectId) *</label>
+                            <input type="text" id="fb-project-id" placeholder="sidi-yaqout-123" required>
+                        </div>
+                        <div class="field">
+                            <label>نطاق المصادقة (authDomain)</label>
+                            <input type="text" id="fb-auth-domain" placeholder="sidi-yaqout-123.firebaseapp.com">
+                        </div>
+                        <div class="field">
+                            <label>حاوية التخزين (storageBucket)</label>
+                            <input type="text" id="fb-storage-bucket" placeholder="sidi-yaqout-123.appspot.com">
+                        </div>
+                        <div class="field">
+                            <label>معرف التطبيق (appId) *</label>
+                            <input type="text" id="fb-app-id" placeholder="1:123456789:web:abcdef" required>
+                        </div>
+                        <div class="field">
+                            <label>نوع قاعدة البيانات المفضلة</label>
+                            <select id="fb-db-type" onchange="onFirebaseDbTypeChanged()">
+                                <option value="firestore" selected>Cloud Firestore (موصى به - الأحدث والأسرع)</option>
+                                <option value="realtime">Realtime Database (سريعة جداً للقراءات البسيطة)</option>
+                            </select>
+                        </div>
+                        <div class="field" id="fb-database-url-field" style="display:none;">
+                            <label>رابط Realtime Database URL</label>
+                            <input type="text" id="fb-database-url" placeholder="https://sidi-yaqout-default-rtdb.firebaseio.com">
+                        </div>
+                    </div>
+
+                    <!-- خيارات إضافية -->
+                    <div style="display:flex; gap:20px; align-items:center; flex-wrap:wrap; margin-top:16px; padding:12px; background:#f8fafc; border-radius:8px; border:1.5px solid #e2e8f0;">
+                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; cursor:pointer; color:var(--text-main);">
+                            <input type="checkbox" id="fb-enable-realtime-sync" checked style="width:18px; height:18px; cursor:pointer; accent-color:#10b981;">
+                            <span>⚡ تفعيل المزامنة اللحظية الحية (Live Real-time Auto-Sync بين جميع الأجهزة)</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:bold; cursor:pointer; color:var(--text-main);">
+                            <input type="checkbox" id="fb-enable-offline-fallback" checked style="width:18px; height:18px; cursor:pointer; accent-color:#38bdf8;">
+                            <span>💾 الاحتفاظ بالذاكرة المحلية لضمان العمل حتى في حالة انقطاع الإنترنت (Offline Support)</span>
+                        </label>
+                    </div>
+
+                    <div class="actions" style="margin-top:18px;">
+                        <button type="submit" class="btn-primary" style="flex:2; font-size:14px; padding:11px 20px; justify-content:center;">
+                            💾 حفظ وتفعيل الاتصال بـ Firebase الآن
+                        </button>
+                        <button type="button" class="btn-secondary" style="flex:1; font-size:13px; padding:11px 16px; justify-content:center;" onclick="testFirebaseConnection()">
+                            🔄 فحص الاتصال
+                        </button>
+                        <button type="button" class="btn-danger" style="font-size:13px; padding:11px 18px; justify-content:center;" onclick="disconnectFirebase()">
+                            🔌 قطع الاتصال والعودة للوضع المحلي
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- دليل إرشادي سريع: كيفية إنشاء مشروع Firebase مجاني في 3 خطوات -->
+            <div class="firebase-guide-box">
+                <div style="font-size:14px; font-weight:800; color:var(--accent); margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                    <span>💡</span>
+                    <span>كيفية إنشاء مشروع Firebase والحصول على المفاتيح في دقيقتين مجاناً:</span>
+                </div>
+                <div class="firebase-step-item">
+                    <div class="firebase-step-num">1</div>
+                    <div>
+                        افتح موقع <a href="https://console.firebase.google.com" target="_blank" style="color:var(--accent); font-weight:bold; text-decoration:underline;">Firebase Console</a> وسجل دخولك بحساب Google / Gmail الخاص بالعيادات واضغط <strong>Add project</strong> واكتب اسم المشروع (مثلاً: <code>sidi-yaqout-erp</code>).
+                    </div>
+                </div>
+                <div class="firebase-step-item">
+                    <div class="firebase-step-num">2</div>
+                    <div>
+                        من القائمة الجانبية في Firebase، اضغط على <strong>Firestore Database</strong> ثم اضغط <strong>Create database</strong>، واختر البدء بوضع التجربة <strong>Start in test mode</strong> واضغط Enable للسماح للمنظومة بالقراءة والكتابة السحابية.
+                    </div>
+                </div>
+                <div class="firebase-step-item">
+                    <div class="firebase-step-num">3</div>
+                    <div>
+                        اضغط على أيقونة الترس ⚙️ في أعلى اليمين (Project settings)، وانزل لأسفل الصفحة واضغط على أيقونة الويب <code>&lt;/&gt;</code> وسجل تطبيقك، وانسخ كود <code>firebaseConfig</code> والصقه في المربع بالأعلى واضغط <strong>استخراج وحفظ</strong>!
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<!-- ==================== نوافذ النظام المنبثقة (MODALS) ==================== -->
+
+<!-- نافذة قفل الشاشة (Lock Screen Modal) -->
+<div id="modal-lock-screen" class="lock-screen-overlay">
+    <div class="lock-card">
+        <div style="width:60px; height:60px; background:linear-gradient(135deg, var(--accent), #2563eb); border-radius:16px; margin:0 auto 16px; display:flex; align-items:center; justify-content:center; font-size:30px;">
+            🏥
+        </div>
+        <h2 style="font-size:20px; font-weight:800; color:var(--text-main); margin-bottom:4px;">عيادات سيدى ياقوت التخصصية</h2>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">المنظومة مقفلة بأمان | يرجى إدخال بيانات الدخول للمتابعة</p>
+
+        <form id="lock-screen-form" onsubmit="handleUnlockSystem(event)">
+            <div class="field" style="margin-bottom:14px; text-align:right;">
+                <label>اسم المستخدم</label>
+                <select id="lock-user-select" style="width:100%;" onchange="onLockUserSelectChanged()">
+                    <!-- dynamic users -->
+                </select>
+            </div>
+            <div class="field" style="margin-bottom:20px; text-align:right;">
+                <label>كلمة المرور أو رمز الـ PIN</label>
+                <input type="password" id="lock-password-input" placeholder="أدخل كلمة المرور..." required style="width:100%; text-align:center; font-size:16px; letter-spacing:2px;">
+            </div>
+            <div id="lock-error-msg" style="color:#ef4444; font-size:12px; font-weight:bold; margin-bottom:12px; display:none;"></div>
+            <button type="submit" class="btn-primary" style="width:100%; justify-content:center; font-size:14px; padding:12px;">
+                🔓 فتح المنظومة ومتابعة العمل
+            </button>
+            <button type="button" class="btn-secondary" style="font-size:11.5px; padding:7px 12px; width:100%; margin-top:10px; justify-content:center; color:var(--accent); border:1px dashed var(--accent);" onclick="openEmployeeSelfRegisterModal()">📝 موظف جديد؟ اضغط هنا لتسجيل حسابك</button>
+        </form>
+    </div>
+</div>
+
+<!-- نافذة تبديل المستخدم السريع (Switch User Modal) -->
+<div id="modal-switch-user" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.45); backdrop-filter:blur(6px); z-index:99999; align-items:center; justify-content:center;">
+    <div style="background:var(--surface); border:1px solid var(--accent); border-radius:14px; width:92%; max-width:440px; padding:24px; box-shadow:0 10px 35px rgba(0,0,0,0.6);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+            <h3 style="color:var(--accent); font-size:16px; font-weight:800;">🔄 تبديل المستخدم النشط</h3>
+            <button onclick="closeSwitchUserModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✖</button>
+        </div>
+        <form onsubmit="handleSwitchUserSubmit(event)">
+            <div class="field" style="margin-bottom:12px;">
+                <label>اختر المستخدم المراد التبديل إليه</label>
+                <select id="switch-user-select" required></select>
+            </div>
+            <div class="field" style="margin-bottom:18px;">
+                <label>كلمة المرور / الرمز السري</label>
+                <input type="password" id="switch-user-password" placeholder="أدخل كلمة المرور..." required>
+            </div>
+            <div id="switch-user-error" style="color:#ef4444; font-size:12px; font-weight:bold; margin-bottom:12px; display:none;"></div>
+            <div style="display:flex; gap:10px;">
+                <button type="submit" class="btn-primary" style="flex:1; justify-content:center;">✔ تسجيل الدخول</button>
+                <button type="button" class="btn-secondary" onclick="closeSwitchUserModal()">إلغاء</button>
+            </div>
+            <button type="button" class="btn-secondary" style="font-size:11.5px; padding:7px 12px; width:100%; margin-top:10px; justify-content:center; color:var(--accent); border:1px dashed var(--accent);" onclick="openEmployeeSelfRegisterModal()">📝 موظف جديد؟ اضغط هنا لتسجيل حسابك</button>
+        </form>
+    </div>
+</div>
+
+<!-- نافذة تسجيل حساب موظف جديد ذاتياً (Employee Self-Registration Modal) -->
+<div id="modal-employee-register" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.55); backdrop-filter:blur(6px); z-index:99999; align-items:center; justify-content:center;">
+    <div style="background:var(--surface); border:1.5px solid var(--accent); border-radius:14px; width:92%; max-width:460px; padding:24px; box-shadow:0 10px 35px rgba(0,0,0,0.6);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+            <h3 style="color:var(--accent); font-size:16px; font-weight:800;">📝 تسجيل حساب جديد لموظف</h3>
+            <button onclick="closeEmployeeSelfRegisterModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✖</button>
+        </div>
+        <form onsubmit="handleEmployeeSelfRegister(event)">
+            <div class="field" style="margin-bottom:12px;">
+                <label>اختر اسمك من قائمة الموظفين *</label>
+                <select id="self-reg-emp-select" onchange="onSelfRegEmployeeSelected()" required style="font-weight:bold;"></select>
+            </div>
+            <div class="field" style="margin-bottom:12px;">
+                <label>اسم المستخدم (لتسجيل الدخول) *</label>
+                <input type="text" id="self-reg-username" placeholder="مثال: ahmed101" required>
+            </div>
+            <div class="field" style="margin-bottom:16px;">
+                <label>كلمة المرور / الرمز السري (PIN) *</label>
+                <input type="password" id="self-reg-password" placeholder="أدخل رقم أو كلمة سرية خاصة بك" required>
+            </div>
+            <div id="self-reg-error" style="color:#ef4444; font-size:12px; font-weight:bold; margin-bottom:12px; display:none;"></div>
+            <div style="display:flex; gap:10px;">
+                <button type="submit" class="btn-primary" style="flex:1; justify-content:center;">💾 تسجيل الحساب والدخول فوراً</button>
+                <button type="button" class="btn-secondary" onclick="closeEmployeeSelfRegisterModal()">إلغاء</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- نافذة إقرار تسوية جماعية لقسم بالكامل (Batch Dept Adjustment Modal) -->
+<div id="modal-batch-dept-adj" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.45); backdrop-filter:blur(6px); z-index:99999; align-items:center; justify-content:center;">
+    <div style="background:var(--surface); border:1px solid var(--success); border-radius:14px; width:92%; max-width:520px; padding:24px; box-shadow:0 10px 35px rgba(0,0,0,0.6);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+            <h3 style="color:var(--success); font-size:16px; font-weight:800;">⚡ إقرار تسوية مالية موحدة لقسم بالكامل</h3>
+            <button onclick="closeBatchDeptBonusModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✖</button>
+        </div>
+        <form onsubmit="handleBatchDeptBonusSubmit(event)">
+            <div class="field" style="margin-bottom:12px;">
+                <label>اختر القسم المستهدف</label>
+                <select id="batch-dept-select" required></select>
+            </div>
+            <div class="form-grid" style="margin-bottom:14px;">
+                <div class="field">
+                    <label>نوع التسوية *</label>
+                    <select id="batch-adj-type" required>
+                        <option value="rewards">مكافآت (+)</option>
+                        <option value="bonus">بونص (+)</option>
+                        <option value="adminAllowance">بدل إدارة (+)</option>
+                        <option value="cashback">كاش باك (+)</option>
+                        <option value="visits">زيارات (+)</option>
+                        <option value="penalties">جزاءات (-)</option>
+                        <option value="supplies">خصم مستلزمات (-)</option>
+                        <option value="otherDeductions">استقطاعات أخرى (-)</option>
+                        <option value="advances">سلف (-)</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>المبلغ لكل موظف (ج.م) *</label>
+                    <input type="number" step="any" id="batch-adj-amount" placeholder="مثال: 250" required>
+                </div>
+            </div>
+            <div class="field" style="margin-bottom:16px;">
+                <label>البيان / ملاحظة التسوية (اختياري)</label>
+                <input type="text" id="batch-adj-note" placeholder="مثال: مكافأة الأعياد أو تميز الشيفت">
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button type="submit" class="btn-success" style="flex:1; justify-content:center;">✔ تطبيق على جميع موظفي القسم</button>
+                <button type="button" class="btn-secondary" onclick="closeBatchDeptBonusModal()">إلغاء</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ==================== نافذة فتح البرنامج على الموبايل والشبكة ==================== -->
+<div id="modal-mobile-connect" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.65); backdrop-filter:blur(4px); z-index:10001; align-items:center; justify-content:center;">
+    <div class="custom-modal-box" style="background:#ffffff; border-radius:16px; width:92%; max-width:540px; max-height:92vh; overflow-y:auto; padding:24px; box-shadow:0 20px 40px rgba(0,0,0,0.25); border:1px solid #e2e8f0; text-align:right;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid #e2e8f0; padding-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:24px;">📱</span>
+                <div>
+                    <h3 style="font-size:17px; font-weight:800; color:var(--text-main); margin:0;">فتح البرنامج على الموبايل والكمبيوتر معاً</h3>
+                    <span style="font-size:11.5px; color:#990012; font-weight:700;">مزامنة لحظية وتحديث أول بأول سحابياً</span>
+                </div>
+            </div>
+            <button type="button" onclick="closeMobileConnectModal()" style="background:#f1f5f9; border:none; border-radius:8px; width:32px; height:32px; font-size:16px; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+
+        <!-- حالة المزامنة السحابية -->
+        <div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px; padding:10px 14px; margin-bottom:16px; display:flex; align-items:center; gap:10px;">
+            <span style="font-size:20px;">⚡</span>
+            <div style="font-size:12px; color:#065f46; line-height:1.4;">
+                <strong>المزامنة الحية نشطة 🟢:</strong> أي موظف أو حضور أو تسوية تسجلها من الموبايل هتتحدث فوراً على شاشة الكمبيوتر والعكس دون الحاجة لتحديث الصفحة!
+            </div>
+        </div>
+
+        <!-- QR Code Barcode Box -->
+        <div style="background:#f8fafc; border:1.5px dashed #cbd5e1; border-radius:12px; padding:16px; text-align:center; margin-bottom:16px;">
+            <div style="font-size:13px; font-weight:700; color:var(--text-main); margin-bottom:10px;">
+                📷 امسح الباركود بكاميرا الموبايل لفتح البرنامج مباشرة:
+            </div>
+            <div style="display:inline-block; background:#ffffff; padding:12px; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.06); border:1px solid #e2e8f0;">
+                <img id="mobile-qr-image" src="" alt="QR Code" style="width:170px; height:170px; display:block; border-radius:6px;" />
+            </div>
+            <div style="font-size:11px; color:#64748b; margin-top:8px;">
+                افتح كاميرا هاتفك ووجّهها نحو المربع وسيظهر لك رابط المنظومة فوراً
+            </div>
+        </div>
+
+        <!-- Direct Link Box -->
+        <div style="margin-bottom:16px;">
+            <label style="font-size:12.5px; font-weight:700; color:var(--text-main); display:block; margin-bottom:6px;">🔗 رابط فتح البرنامج:</label>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="mobile-app-link-input" readonly style="flex:1; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; font-size:12.5px; direction:ltr; text-align:left; font-family:monospace; color:#1e1b4b;" />
+                <button type="button" class="btn-primary" onclick="copyMobileAppLink()" style="padding:8px 14px; font-size:12px; white-space:nowrap;">📋 نسخ</button>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:8px;">
+                <button type="button" class="btn-success" onclick="shareAppLinkViaWhatsApp()" style="flex:1; justify-content:center; padding:8px 12px; font-size:12px;">
+                    <span>💬</span>
+                    <span>إرسال الرابط لنفسي عبر واتساب</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- PWA Instructions -->
+        <div style="background:#f5f3ff; border:1px solid #ddd6fe; border-radius:10px; padding:12px 14px; margin-bottom:16px;">
+            <div style="font-size:12.5px; font-weight:800; color:#6d28d9; margin-bottom:6px;">📲 تثبيت كأيقونة تطبيق على شاشة موبايلك (بدون متجر):</div>
+            <ul style="font-size:11.5px; color:#475569; padding-right:18px; line-height:1.6; margin:0;">
+                <li><strong>هواتف أندرويد (Google Chrome):</strong> افتح الرابط ⬅ اضغط على الثلاث نقاط (⋮) بأعلى الشاشة ⬅ اختر <em>"إضافة إلى الشاشة الرئيسية"</em>.</li>
+                <li><strong>هواتف آيفون (Apple Safari):</strong> افتح الرابط ⬅ اضغط على زر المشاركة (⎋) بأسفل الشاشة ⬅ اختر <em>"إضافة إلى الصفحة الرئيسية"</em>.</li>
+            </ul>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end;">
+            <button type="button" class="btn-secondary" onclick="closeMobileConnectModal()" style="padding:8px 20px;">إغلاق</button>
+        </div>
+    </div>
+</div>
+
+<!-- نافذة التنبيه والإشعار السريع (Toast Notification) -->
+<div id="system-toast" class="toast-box"></div>
+
+
+    <!-- Clinic Brand Assets & Helpers -->
+    <script src="js/utils/clinic-assets.js"></script>
+    <script src="js/utils/splash-screen.js"></script>
+
+    <!-- Core Libraries & Fallbacks -->
+    <script src="html2pdf.bundle.min.js"></script>
+    <script src="js/utils/toast.js"></script>
+    <script src="js/utils/print-helpers.js"></script>
+    <script src="js/utils/excel-helpers.js"></script>
+    <script src="js/utils/quick-tools.js"></script>
+    <script src="js/utils/autocomplete.js"></script>
+
+    <!-- Users, Roles & Auth System -->
+    <script src="js/screens/12-users-roles.js"></script>
+
+    <!-- App State & Global Navigation Router -->
+    <script src="js/app-state.js"></script>
+
+    <!-- Screen Modules -->
+    <script src="js/screens/01-dashboard.js"></script>
+    <script src="js/screens/02-employees.js"></script>
+    <script src="js/screens/03-attendance.js"></script>
+    <script src="js/screens/04-salary-adjustments.js"></script>
+    <script src="js/screens/05-payroll-summary.js"></script>
+    <script src="js/screens/06-single-sarki.js"></script>
+    <script src="js/screens/07-bulk-payslips.js"></script>
+    <script src="js/screens/08-payroll-delivery.js"></script>
+    <script src="js/screens/09-employee-report.js"></script>
+    <script src="js/screens/10-totals-report.js"></script>
+    <script src="js/screens/11-backup-restore.js"></script>
+    <script src="js/screens/13-employee-sarki.js"></script>
+
+    <!-- Firebase Cloud Sync Service -->
+    <script src="js/services/firebase-service.js"></script>
+
+    <!-- Main System Initialization -->
+    <script src="js/app.js"></script>
+</body>
+</html>

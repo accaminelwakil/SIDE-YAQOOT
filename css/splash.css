@@ -1,0 +1,419 @@
+/* ==========================================================================
+   عيادات سيدي ياقوت التخصصية - شاشة البداية والتحميل الترحيبية (Splash Screen)
+   سلوجن: 365 يوم من الرعاية الطبية المتكاملة
+   ========================================================================== */
+
+.clinic-splash-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: radial-gradient(circle at 50% 35%, #ffffff 0%, #fbfcfe 45%, #eff4fa 100%);
+    z-index: 9999999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    user-select: none;
+    direction: rtl;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    opacity: 1;
+    transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), filter 0.6s ease;
+}
+
+.clinic-splash-screen.splash-hidden {
+    opacity: 0;
+    transform: scale(1.03);
+    filter: blur(4px);
+    pointer-events: none;
+}
+
+/* خلفية الجسيمات الطبية الناعمة والأمواج الضوئية */
+.splash-ambient-aura {
+    position: absolute;
+    width: 650px;
+    height: 650px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(153, 0, 18, 0.08) 0%, rgba(16, 42, 69, 0.06) 45%, transparent 70%);
+    animation: splashAuraPulse 4s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 1;
+}
+
+@keyframes splashAuraPulse {
+    0% { transform: scale(0.9) translate(0, 0); opacity: 0.6; }
+    50% { transform: scale(1.15) translate(10px, -10px); opacity: 0.9; }
+    100% { transform: scale(1.0) translate(-10px, 10px); opacity: 0.7; }
+}
+
+.splash-ambient-grid {
+    position: absolute;
+    inset: 0;
+    background-image: 
+        radial-gradient(rgba(16, 42, 69, 0.06) 1.5px, transparent 1.5px),
+        linear-gradient(rgba(153, 0, 18, 0.02) 1px, transparent 1px);
+    background-size: 32px 32px;
+    background-position: 0 0, 16px 16px;
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* زر التخطي السريع */
+.splash-skip-btn {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(16, 42, 69, 0.15);
+    color: #102a45;
+    padding: 7px 18px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+    backdrop-filter: blur(8px);
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.splash-skip-btn:hover {
+    background: #990012;
+    color: #ffffff;
+    border-color: #990012;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(153, 0, 18, 0.25);
+}
+
+/* المحتوى الرئيسي المركزي للشاشة */
+.splash-center-content {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 90%;
+    max-width: 580px;
+    text-align: center;
+}
+
+/* حاوية اللوجو مع أنيميشن الدخول والتألق */
+.splash-logo-container {
+    position: relative;
+    margin-bottom: 24px;
+    animation: splashLogoEntrance 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.splash-logo-card {
+    position: relative;
+    padding: 16px 28px;
+    background: rgba(255, 255, 255, 0.94);
+    border-radius: 20px;
+    border: 1.5px solid rgba(153, 0, 18, 0.15);
+    box-shadow: 
+        0 10px 30px -5px rgba(16, 42, 69, 0.1),
+        0 20px 40px -10px rgba(153, 0, 18, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(12px);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.splash-logo-img {
+    height: 110px;
+    width: auto;
+    max-width: 360px;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.05));
+    display: block;
+}
+
+/* لمعة ضوئية خاطفة فوق اللوجو */
+.splash-logo-card::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -100%;
+    width: 60%;
+    height: 200%;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.8) 50%,
+        transparent 100%
+    );
+    transform: rotate(30deg);
+    animation: splashShineSweep 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    pointer-events: none;
+}
+
+@keyframes splashLogoEntrance {
+    0% {
+        opacity: 0;
+        transform: scale(0.65) translateY(-30px);
+        filter: blur(8px);
+    }
+    60% {
+        opacity: 1;
+        transform: scale(1.03) translateY(0);
+        filter: blur(0);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1.0) translateY(0);
+        filter: blur(0);
+    }
+}
+
+@keyframes splashShineSweep {
+    0% { left: -120%; }
+    40% { left: 180%; }
+    100% { left: 180%; }
+}
+
+/* ==========================================================================
+   أنيميشن السلوجن المبتكر: "365 يوم من الرعاية"
+   يطير ويعبر الشاشة ثم يستقر ويثبت تماماً أسفل اللوجو مع مؤثرات مذهلة
+   ========================================================================== */
+
+.splash-slogan-flight-track {
+    position: relative;
+    width: 100%;
+    height: 85px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    perspective: 1000px;
+}
+
+.splash-slogan-box {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 24px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1.5px solid rgba(234, 179, 8, 0.4);
+    border-radius: 40px;
+    box-shadow: 
+        0 8px 25px rgba(234, 179, 8, 0.2),
+        0 4px 15px rgba(153, 0, 18, 0.12);
+    /* الأنيميشن السينمائي: الطيران العابر ثم الاستقرار أسفل اللوجو */
+    animation: 
+        sloganFlightAndDock 2.2s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards,
+        sloganDockedPulse 2s ease-in-out infinite 2.2s;
+    transform-origin: center center;
+}
+
+.splash-slogan-img {
+    height: 58px;
+    width: auto;
+    max-width: 290px;
+    object-fit: contain;
+    display: block;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.08));
+}
+
+/* مسار الطيران والعبور عبر الشاشة من اليمين نحو اليسار والعودة للاستقرار أسفل اللوجو */
+@keyframes sloganFlightAndDock {
+    0% {
+        opacity: 0;
+        transform: translate3d(120vw, -70px, 200px) rotate(14deg) scale(0.6);
+        filter: blur(10px) drop-shadow(0 0 35px rgba(234, 179, 8, 0.9));
+    }
+    22% {
+        opacity: 1;
+        transform: translate3d(35vw, -30px, 80px) rotate(-6deg) scale(1.3);
+        filter: blur(0px) drop-shadow(0 15px 30px rgba(153, 0, 18, 0.5));
+    }
+    45% {
+        opacity: 1;
+        /* يعبر عبر منتصف الشاشة مع ميلان أنيق وتوهج ذهبي */
+        transform: translate3d(-30vw, 25px, 40px) rotate(5deg) scale(1.18);
+        filter: drop-shadow(0 12px 25px rgba(234, 179, 8, 0.6));
+    }
+    72% {
+        opacity: 1;
+        transform: translate3d(12vw, 10px, 10px) rotate(-3deg) scale(1.08);
+        filter: drop-shadow(0 8px 18px rgba(16, 42, 69, 0.3));
+    }
+    88% {
+        opacity: 1;
+        /* حركة ارتدادية خفيفة عند نقطة التثبيت تحت اللوجو */
+        transform: translate3d(-2px, -3px, 0) rotate(0.8deg) scale(0.98);
+    }
+    100% {
+        opacity: 1;
+        /* الثبات الدقيق والمحكم تحت اللوجو تماماً */
+        transform: translate3d(0, 0, 0) rotate(0deg) scale(1.0);
+        filter: drop-shadow(0 6px 16px rgba(234, 179, 8, 0.25));
+    }
+}
+
+/* نبض وتألق خفيف بعد الثبات أسفل اللوجو */
+@keyframes sloganDockedPulse {
+    0%, 100% {
+        transform: scale(1.0);
+        box-shadow: 0 8px 25px rgba(234, 179, 8, 0.2), 0 4px 15px rgba(153, 0, 18, 0.12);
+    }
+    50% {
+        transform: scale(1.03);
+        box-shadow: 0 12px 30px rgba(234, 179, 8, 0.35), 0 6px 20px rgba(153, 0, 18, 0.2);
+        border-color: rgba(234, 179, 8, 0.7);
+    }
+}
+
+/* شريط ضوء لامع فوق السلوجن */
+.splash-slogan-box::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -120%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.85) 50%,
+        transparent 100%
+    );
+    transform: skewX(-25deg);
+    animation: sloganShineSweep 2.2s ease-in-out infinite 2.2s;
+    pointer-events: none;
+    border-radius: 40px;
+}
+
+@keyframes sloganShineSweep {
+    0% { left: -120%; }
+    40% { left: 160%; }
+    100% { left: 160%; }
+}
+
+/* ==========================================================================
+   شريط التقدم النبضي الطبي (ECG Line & Progress Bar)
+   ========================================================================== */
+
+.splash-progress-container {
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    animation: splashFadeInUp 0.8s ease forwards 0.4s;
+    opacity: 0;
+}
+
+@keyframes splashFadeInUp {
+    0% { opacity: 0; transform: translateY(15px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+.splash-heartbeat-line {
+    width: 100%;
+    height: 24px;
+    overflow: hidden;
+    position: relative;
+    opacity: 0.85;
+}
+
+.ecg-svg {
+    width: 100%;
+    height: 100%;
+    stroke: #990012;
+    stroke-width: 2.2;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.ecg-path {
+    stroke-dasharray: 500;
+    stroke-dashoffset: 500;
+    animation: ecgHeartbeat 2.8s linear infinite;
+    filter: drop-shadow(0 0 4px rgba(153, 0, 18, 0.4));
+}
+
+@keyframes ecgHeartbeat {
+    0% { stroke-dashoffset: 500; }
+    50% { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: -500; }
+}
+
+.splash-progress-track {
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.splash-progress-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #990012 0%, #d97706 50%, #102a45 100%);
+    border-radius: 10px;
+    transition: width 0.15s linear;
+    box-shadow: 0 0 10px rgba(153, 0, 18, 0.4);
+}
+
+.splash-loading-status {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #102a45;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+}
+
+.splash-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #059669;
+    box-shadow: 0 0 8px #059669;
+    animation: statusDotPulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes statusDotPulse {
+    0% { transform: scale(0.8); opacity: 0.6; }
+    100% { transform: scale(1.2); opacity: 1; }
+}
+
+/* تجاوب الشاشات الصغيرة والموبايل */
+@media (max-width: 640px) {
+    .splash-logo-card {
+        padding: 12px 18px;
+    }
+    .splash-logo-img {
+        height: 75px;
+        max-width: 250px;
+    }
+    .splash-slogan-flight-track {
+        height: 70px;
+    }
+    .splash-slogan-box {
+        padding: 7px 16px;
+    }
+    .splash-slogan-img {
+        height: 44px;
+        max-width: 220px;
+    }
+    .splash-progress-container {
+        max-width: 300px;
+    }
+}
