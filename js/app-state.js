@@ -158,6 +158,14 @@
 
         // إغلاق قائمة الموبايل تلقائياً عند اختيار أي شاشة
         toggleMobileSidebar(false);
+
+        // إعادة حساب مقياس السراكي A4 وتغليف الجداول على الموبايل فور الانتقال للشاشة
+        if (typeof autoScaleAllA4Sheets === 'function') {
+            setTimeout(autoScaleAllA4Sheets, 60);
+        }
+        if (typeof ensureAllTablesWrapped === 'function') {
+            setTimeout(ensureAllTablesWrapped, 60);
+        }
     }
 
     // =========================================================================

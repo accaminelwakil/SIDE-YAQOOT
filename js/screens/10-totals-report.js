@@ -340,6 +340,7 @@
             <html lang="ar" dir="rtl">
             <head>
                 <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
                 <title>تقرير إجمالي الموظفين والأقسام - عيادات سيدى ياقوت التخصصية</title>
                 <style>
                     @page { size: A4 landscape; margin: 8mm; }

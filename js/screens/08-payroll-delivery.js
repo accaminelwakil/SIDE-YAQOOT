@@ -653,6 +653,8 @@
 
                 <meta charset="UTF-8">
 
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+
                 <title>كشف_تسليم_وصرف_الرواتب_${(cycleText || 'دورة').replace(/\s+/g, '_')}</title>
 
                 <style>

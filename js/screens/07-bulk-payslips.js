@@ -459,6 +459,9 @@
         }
 
         container.innerHTML = html;
+        if (typeof autoScaleAllA4Sheets === 'function') {
+            setTimeout(autoScaleAllA4Sheets, 50);
+        }
     }
 
     function getBulkPayslipsPrintHtml() {
@@ -509,6 +512,7 @@
             <html lang="ar" dir="rtl">
             <head>
                 <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
                 <title>سراكي رواتب العاملين المجمعة - عيادات سيدى ياقوت</title>
                 <style>
                     @page { size: A4 portrait; margin: 4mm 5mm; }

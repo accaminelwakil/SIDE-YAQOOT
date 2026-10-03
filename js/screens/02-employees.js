@@ -116,6 +116,8 @@
 
                 <meta charset="UTF-8">
 
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+
                 <title>كشف رواتب الموظفين - عيادات سيدى ياقوت التخصصية</title>
 
                 <style>

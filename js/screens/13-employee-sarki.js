@@ -263,6 +263,9 @@ function generateEmployeeSelfSarki() {
     const finalNet = Math.round(((basicGroupTotal + totalAdditions) - totalDeductions) * 100) / 100;
     const boxNet = document.getElementById('emp-sarki-box-net');
     if (boxNet) boxNet.textContent = finalNet.toLocaleString('ar-EG', {minimumFractionDigits: 2}) + ' ج.م';
+    if (typeof autoScaleAllA4Sheets === 'function') {
+        setTimeout(autoScaleAllA4Sheets, 50);
+    }
 }
 
 function getEmployeeSelfSarkiPrintHtml() {
@@ -284,6 +287,7 @@ function getEmployeeSelfSarkiPrintHtml() {
         <html lang="ar" dir="rtl">
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>سركي وبيان راتب موظف - عيادات سيدى ياقوت التخصصية</title>
             <style>
                 @page { size: A4 portrait; margin: 6mm 5mm; }
