@@ -1,8 +1,9 @@
 // ====================================================================
-// Service Worker - عيادات سيدي ياقوت التخصصية v2
+// Service Worker - عيادات سيدي ياقوت التخصصية v3
+// PWA & TWA Full Offline Support & PWABuilder Optimized
 // ====================================================================
 
-const CACHE_NAME = 'sidi-yaqout-v2';
+const CACHE_NAME = 'sidi-yaqout-v3';
 
 const CORE_FILES = [
     '/',
@@ -11,12 +12,22 @@ const CORE_FILES = [
     '/sw.js',
     '/css/main.css',
     '/css/splash.css',
+    '/assets/icons/icon-48x48.png',
+    '/assets/icons/icon-72x72.png',
+    '/assets/icons/icon-96x96.png',
+    '/assets/icons/icon-128x128.png',
+    '/assets/icons/icon-144x144.png',
+    '/assets/icons/icon-152x152.png',
     '/assets/icons/icon-192x192.png',
+    '/assets/icons/icon-384x384.png',
     '/assets/icons/icon-512x512.png',
     '/assets/icons/icon-maskable-192x192.png',
     '/assets/icons/icon-maskable-512x512.png',
+    '/assets/icons/icon-shortcut-96x96.png',
     '/assets/sidi-yaqout-logo-transparent.png',
     '/assets/sidi-yaqout-slogan-transparent.png',
+    '/assets/sidi-yaqout-logo.png',
+    '/assets/sidi-yaqout-slogan.png',
     '/js/utils/clinic-assets.js',
     '/js/utils/splash-screen.js',
     '/js/utils/toast.js',
@@ -24,6 +35,7 @@ const CORE_FILES = [
     '/js/utils/excel-helpers.js',
     '/js/utils/quick-tools.js',
     '/js/utils/autocomplete.js',
+    '/js/utils/geofence-service.js',
     '/js/app-state.js',
     '/js/app.js',
     '/js/services/firebase-service.js',
@@ -39,10 +51,10 @@ const CORE_FILES = [
     '/js/screens/10-totals-report.js',
     '/js/screens/11-backup-restore.js',
     '/js/screens/12-users-roles.js',
-    '/js/screens/13-employee-sarki.js',
+    '/js/screens/13-employee-sarki.js'
 ];
 
-// ── Install ─────────────────────────────────────────────────────────
+// ── Install: Pre-cache all essential core files ──────────────────────
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
@@ -57,52 +69,65 @@ self.addEventListener('install', (event) => {
     );
 });
 
-// ── Activate ────────────────────────────────────────────────────────
+// ── Activate: Clean up old caches and claim clients immediately ─────
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((keys) =>
             Promise.all(
-                keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+                keys.filter(k => k !== CACHE_NAME).map(k => {
+                    console.log('[SW] Deleting old cache:', k);
+                    return caches.delete(k);
+                })
             )
         ).then(() => self.clients.claim())
     );
 });
 
-// ── Fetch: Network First → Cache → Offline Page ─────────────────────
+// ── Fetch: Network First → Cache → Offline Fallback Page ─────────────
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
 
-    // تجاهل Firebase وCDN والـ non-GET
+    // تجاهل الـ non-GET ومكالمات الـ APIs الخارجية والـ WebSocket
     if (
         event.request.method !== 'GET' ||
+        url.pathname.startsWith('/api/') ||
         url.hostname.includes('firebase') ||
         url.hostname.includes('googleapis') ||
         url.hostname.includes('gstatic') ||
         url.hostname.includes('cdnjs')
-    ) return;
+    ) {
+        return;
+    }
 
     event.respondWith(
         fetch(event.request)
-            .then(response => {
-                if (response && response.status === 200) {
+            .then((response) => {
+                if (response && response.status === 200 && response.type === 'basic') {
                     const clone = response.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                    caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(event.request, clone);
+                    });
                 }
                 return response;
             })
-            .catch(() =>
-                caches.match(event.request).then(cached => {
-                    if (cached) return cached;
-                    if (event.request.mode === 'navigate') {
-                        return caches.match('/').then(r => r || offlinePage());
+            .catch(() => {
+                return caches.match(event.request).then((cachedResponse) => {
+                    if (cachedResponse) {
+                        return cachedResponse;
                     }
-                    return new Response('', { status: 503 });
-                })
-            )
+                    // في حالة التنقل لصفحة HTML ولم يتوفر نت
+                    if (event.request.mode === 'navigate') {
+                        return caches.match('/index.html').then((indexCached) => {
+                            return indexCached || offlinePage();
+                        });
+                    }
+                    return new Response('', { status: 503, statusText: 'Offline' });
+                });
+            })
     );
 });
 
-// ── صفحة Offline ─────────────────────────────────────────────────────
+// ── صفحة غير متصل (Offline Fallback Page) ────────────────────────────
 function offlinePage() {
     return new Response(`<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -111,20 +136,51 @@ function offlinePage() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>غير متصل - عيادات سيدي ياقوت</title>
 <style>
-  body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;
-  min-height:100vh;margin:0;background:#f8fafc;color:#0f172a;text-align:center}
-  .card{background:#fff;border-radius:16px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:360px}
-  h1{color:#990012;font-size:1.5rem;margin-bottom:12px}
-  p{color:#64748b;line-height:1.6}
-  button{margin-top:24px;padding:12px 32px;background:#990012;color:#fff;border:none;
-  border-radius:8px;font-size:1rem;cursor:pointer}
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    background: #0f172a;
+    color: #ffffff;
+    text-align: center;
+    padding: 20px;
+  }
+  .card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 20px;
+    padding: 36px 28px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    max-width: 400px;
+    width: 100%;
+  }
+  .icon { font-size: 54px; margin-bottom: 16px; }
+  h1 { color: #f87171; font-size: 1.4rem; margin: 0 0 10px; font-weight: 800; }
+  p { color: #94a3b8; font-size: 0.95rem; line-height: 1.6; margin: 0 0 24px; }
+  button {
+    background: linear-gradient(135deg, #990012 0%, #dc2626 100%);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 28px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(220,38,38,0.4);
+    transition: transform 0.15s ease;
+  }
+  button:active { transform: scale(0.96); }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>⚡ بدون اتصال بالإنترنت</h1>
-  <p>لا يوجد اتصال بالإنترنت حالياً. تحقق من الاتصال وحاول مرة أخرى.</p>
-  <button onclick="location.reload()">إعادة المحاولة</button>
+  <div class="icon">⚡</div>
+  <h1>بدون اتصال بالإنترنت</h1>
+  <p>أنت غير متصل بالإنترنت حالياً. تم حفظ بياناتك محلياً وستتم المزامنة تلقائياً فور عودة الاتصال.</p>
+  <button onclick="location.reload()">🔄 إعادة المحاولة</button>
 </div>
 </body></html>`,
         { headers: { 'Content-Type': 'text/html; charset=utf-8' } }

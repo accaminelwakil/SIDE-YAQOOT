@@ -5,23 +5,32 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-# ── Manifest: يحتاج MIME type خاص ───────────────────────────────────
+# ── ترويسات الأمان الخاصة بالـ PWA والـ Mobile Apps ─────────────────
+@app.after_request
+def add_pwa_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(self)"
+    return response
+
+
+# ── Manifest: يحتاج MIME type خاص للـ PWABuilder ────────────────────
 @app.route("/manifest.json")
 def manifest():
     resp = send_from_directory(BASE_DIR, "manifest.json")
-    resp.headers["Content-Type"] = "application/manifest+json"
+    resp.headers["Content-Type"] = "application/manifest+json; charset=utf-8"
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
 
-# ── Digital Asset Links (TWA / Android) ─────────────────────────────
+# ── Digital Asset Links (TWA / Android APK & AAB) ───────────────────
 @app.route("/.well-known/assetlinks.json")
 def assetlinks():
-    resp = send_from_directory(
-        os.path.join(BASE_DIR, "static", ".well-known"),
-        "assetlinks.json"
-    )
-    resp.headers["Content-Type"] = "application/json"
+    dir_to_use = os.path.join(BASE_DIR, ".well-known") if os.path.exists(os.path.join(BASE_DIR, ".well-known", "assetlinks.json")) else os.path.join(BASE_DIR, "static", ".well-known")
+    resp = send_from_directory(dir_to_use, "assetlinks.json")
+    resp.headers["Content-Type"] = "application/json; charset=utf-8"
+    resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
 
@@ -29,7 +38,7 @@ def assetlinks():
 @app.route("/sw.js")
 def service_worker():
     resp = send_from_directory(BASE_DIR, "sw.js")
-    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Content-Type"] = "application/javascript; charset=utf-8"
     resp.headers["Service-Worker-Allowed"] = "/"
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp

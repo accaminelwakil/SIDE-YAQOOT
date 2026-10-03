@@ -206,6 +206,12 @@
                 <span>فتح على الموبايل والشبكة</span>
             </button>
 
+            <!-- زر تثبيت التطبيق PWA -->
+            <button type="button" id="pwa-install-btn" class="btn-pwa-install" style="display:none; width:100%; margin-top:6px; background:linear-gradient(135deg, #10b981, #059669); color:#fff; border:none; padding:8px 12px; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer; align-items:center; justify-content:center; gap:6px; box-shadow:0 2px 8px rgba(16,185,129,0.3);">
+                <span>📲</span>
+                <span>تثبيت التطبيق على جهازك</span>
+            </button>
+
             <div style="margin-top:6px; font-size:10.5px; color:var(--text-muted); text-align:center;">
                 منظومة محاسبية آمنة وسحابية 🟢
             </div>
@@ -225,6 +231,10 @@
             </div>
         </div>
         <div class="mobile-header-left">
+            <button type="button" id="mobile-pwa-install-btn" class="btn-mobile-share-top" style="display:none; background:linear-gradient(135deg, #10b981, #059669);" title="تثبيت التطبيق على الموبايل">
+                <span>📲</span>
+                <span>تثبيت</span>
+            </button>
             <button type="button" class="btn-mobile-share-top" onclick="openMobileConnectModal()" title="فتح على أجهزة أخرى أو الهاتف">
                 <span>📱</span>
                 <span>الموبايل</span>
@@ -2702,34 +2712,57 @@
             }
 
             // ============================================================
-            // زر "إضافة للشاشة الرئيسية" - للموبايل Android
+            // زر "إضافة للشاشة الرئيسية" وتثبيت التطبيق
             // ============================================================
             let deferredPrompt = null;
+
+            function triggerPwaInstall() {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then(function(choiceResult) {
+                        if (choiceResult.outcome === 'accepted') {
+                            console.log('[PWA] User accepted install prompt');
+                            hideInstallButtons();
+                        }
+                        deferredPrompt = null;
+                    });
+                } else if (typeof openMobileConnectModal === 'function') {
+                    openMobileConnectModal();
+                }
+            }
+
+            function showInstallButtons() {
+                const b1 = document.getElementById('pwa-install-btn');
+                const b2 = document.getElementById('mobile-pwa-install-btn');
+                if (b1) b1.style.display = 'flex';
+                if (b2) b2.style.display = 'flex';
+            }
+
+            function hideInstallButtons() {
+                const b1 = document.getElementById('pwa-install-btn');
+                const b2 = document.getElementById('mobile-pwa-install-btn');
+                if (b1) b1.style.display = 'none';
+                if (b2) b2.style.display = 'none';
+            }
+
             window.addEventListener('beforeinstallprompt', function(e) {
                 e.preventDefault();
                 deferredPrompt = e;
-                // أظهر زر التنصيب لو موجود في الصفحة
-                const installBtn = document.getElementById('pwa-install-btn');
-                if (installBtn) {
-                    installBtn.style.display = 'flex';
-                    installBtn.addEventListener('click', function() {
-                        if (deferredPrompt) {
-                            deferredPrompt.prompt();
-                            deferredPrompt.userChoice.then(function(choiceResult) {
-                                if (choiceResult.outcome === 'accepted') {
-                                    console.log('[PWA] User accepted install prompt');
-                                    installBtn.style.display = 'none';
-                                }
-                                deferredPrompt = null;
-                            });
-                        }
-                    });
-                }
+                showInstallButtons();
+
+                const b1 = document.getElementById('pwa-install-btn');
+                const b2 = document.getElementById('mobile-pwa-install-btn');
+                if (b1) b1.onclick = triggerPwaInstall;
+                if (b2) b2.onclick = triggerPwaInstall;
             });
 
             window.addEventListener('appinstalled', function() {
                 console.log('[PWA] App installed successfully!');
+                hideInstallButtons();
                 deferredPrompt = null;
+                if (typeof showToast === 'function') {
+                    showToast('🎉 تم تثبيت التطبيق بنجاح على جهازك!');
+                }
             });
         })();
     </script>
