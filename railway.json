@@ -4,6 +4,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python server.py"
+    "startCommand": "python -m http.server --bind 0.0.0.0 $PORT"
   }
 }
