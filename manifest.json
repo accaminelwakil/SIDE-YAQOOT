@@ -3,8 +3,8 @@
   "name": "عيادات سيدي ياقوت التخصصية",
   "short_name": "سيدي ياقوت",
   "description": "منظومة إدارة الرواتب والسراكي والحضور لعيادات سيدي ياقوت التخصصية",
-  "start_url": "./index.html",
-  "scope": "./",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#990012",
@@ -12,78 +12,50 @@
   "dir": "rtl",
   "lang": "ar",
   "categories": ["business", "medical", "productivity"],
+  "prefer_related_applications": false,
 
   "icons": [
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "48x48",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "256x256",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "assets/sidi-yaqout-logo.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
+    { "src": "assets/icons/icon-48x48.png",           "sizes": "48x48",   "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-72x72.png",           "sizes": "72x72",   "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-96x96.png",           "sizes": "96x96",   "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-128x128.png",         "sizes": "128x128", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-144x144.png",         "sizes": "144x144", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-152x152.png",         "sizes": "152x152", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-192x192.png",         "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-384x384.png",         "sizes": "384x384", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512x512.png",         "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-maskable-192x192.png","sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/icons/icon-maskable-512x512.png","sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
 
   "screenshots": [
     {
-      "src": "assets/screenshot-mobile.jpg",
-      "sizes": "780x1688",
+      "src": "assets/screenshot-narrow-1.jpg",
+      "sizes": "720x1280",
       "type": "image/jpeg",
       "form_factor": "narrow",
       "label": "لوحة تحكم الرواتب - موبايل"
     },
     {
-      "src": "assets/screenshot-desktop.jpg",
-      "sizes": "1366x768",
+      "src": "assets/screenshot-narrow-2.jpg",
+      "sizes": "720x1280",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "إدارة الموظفين - موبايل"
+    },
+    {
+      "src": "assets/screenshot-wide-1.jpg",
+      "sizes": "1280x720",
       "type": "image/jpeg",
       "form_factor": "wide",
       "label": "ملخص الرواتب الشهري - ديسكتوب"
+    },
+    {
+      "src": "assets/screenshot-wide-2.jpg",
+      "sizes": "1280x720",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "تقارير الحضور - ديسكتوب"
     }
   ],
 
@@ -92,17 +64,15 @@
       "name": "الرواتب",
       "short_name": "رواتب",
       "description": "شاشة ملخص الرواتب",
-      "url": "./index.html#payroll",
-      "icons": [{ "src": "assets/sidi-yaqout-logo.png", "sizes": "96x96", "type": "image/png" }]
+      "url": "/index.html#payroll",
+      "icons": [{ "src": "assets/icons/icon-shortcut-96x96.png", "sizes": "96x96", "type": "image/png" }]
     },
     {
       "name": "الموظفين",
       "short_name": "موظفين",
       "description": "إدارة بيانات الموظفين",
-      "url": "./index.html#employees",
-      "icons": [{ "src": "assets/sidi-yaqout-logo.png", "sizes": "96x96", "type": "image/png" }]
+      "url": "/index.html#employees",
+      "icons": [{ "src": "assets/icons/icon-shortcut-96x96.png", "sizes": "96x96", "type": "image/png" }]
     }
-  ],
-
-  "prefer_related_applications": false
+  ]
 }
