@@ -1072,17 +1072,48 @@
             transform: translateY(-1px);
             box-shadow: 0 3px 8px rgba(0,0,0,0.04);
         }
-        .permission-card.selected {
-            border-color: #059669;
-            background: #ecfdf5;
+        .permission-card.perm-edit-active {
+            border-color: #059669 !important;
+            background: #ecfdf5 !important;
         }
-        .permission-card input[type="checkbox"] {
-            margin-top: 3px;
-            width: 17px;
-            height: 17px;
-            accent-color: #059669;
+        .permission-card.perm-view-active {
+            border-color: #3b82f6 !important;
+            background: #eff6ff !important;
+        }
+        .permission-actions-bar {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--border);
+            align-items: center;
+        }
+        .perm-option-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11.5px;
+            font-weight: 700;
+            cursor: pointer;
+            padding: 3px 8px;
+            border-radius: 6px;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+        .perm-option-label:hover {
+            background: rgba(0,0,0,0.05);
+        }
+        .perm-option-label input[type="checkbox"] {
+            margin: 0 !important;
+            width: 15px !important;
+            height: 15px !important;
             cursor: pointer;
         }
+        .perm-view-label { color: #1d4ed8; }
+        .perm-view-label input { accent-color: #2563eb; }
+        .perm-edit-label { color: #047857; }
+        .perm-edit-label input { accent-color: #059669; }
+
         .permission-card-body {
             flex: 1;
             text-align: right;
@@ -1113,6 +1144,48 @@
         .cat-sarki { background: #ede9fe; color: #6d28d9; }
         .cat-reports { background: #dcfce7; color: #15803d; }
         .cat-security { background: #fee2e2; color: #b91c1c; }
+        .cat-employee { background: #f3e8ff; color: #7e22ce; }
+
+        /* Screen View-Only Mode */
+        .screen-view-only-banner {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #eff6ff;
+            border: 1.5px solid #3b82f6;
+            border-radius: 12px;
+            padding: 11px 16px;
+            margin-bottom: 14px;
+            color: #1e40af;
+            font-size: 13px;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
+            animation: fadeInBanner 0.3s ease;
+        }
+        @keyframes fadeInBanner {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .screen-view.view-only-mode form button[type="submit"],
+        .screen-view.view-only-mode button.btn-primary:not([onclick*="print"]):not([onclick*="export"]):not([onclick*="Print"]):not([onclick*="Export"]),
+        .screen-view.view-only-mode .btn-header-undo,
+        .screen-view.view-only-mode .btn-header-save,
+        .screen-view.view-only-mode .btn-danger,
+        .screen-view.view-only-mode .btn-success:not([onclick*="print"]):not([onclick*="export"]):not([onclick*="Print"]):not([onclick*="Export"]),
+        .screen-view.view-only-mode .table-action-edit,
+        .screen-view.view-only-mode .table-action-delete {
+            display: none !important;
+        }
+
+        .screen-view.view-only-mode form input:not([type="search"]):not(#emp-search),
+        .screen-view.view-only-mode form select:not([id*="filter"]):not([id*="select"]):not([id*="picker"]):not(#dept-filter):not(#status-filter),
+        .screen-view.view-only-mode form textarea {
+            pointer-events: none !important;
+            background-color: #f8fafc !important;
+            color: #64748b !important;
+            cursor: not-allowed !important;
+        }
         .cat-employee { background: #f3e8ff; color: #7e22ce; }
 
         /* User status widget in sidebar */

@@ -96,8 +96,13 @@
             return;
         }
 
-        // فحص صلاحية الوصول للشاشة المحددة للمستخدم الحالي
-        if (typeof currentUser !== 'undefined' && currentUser) {
+        // فحص صلاحية الاطلاع والوصول للشاشة المحددة للمستخدم الحالي
+        if (typeof canViewScreen === 'function') {
+            if (!canViewScreen(screenId)) {
+                alert('⚠️ عذراً! ليس لديك صلاحية للوصول إلى هذه الشاشة.');
+                return;
+            }
+        } else if (typeof currentUser !== 'undefined' && currentUser) {
             const isAdmin = currentUser.role === 'admin';
             const userPerms = Array.isArray(currentUser.permissions) ? currentUser.permissions : [];
             const isAllowed = isAdmin || userPerms.includes(screenId);
@@ -114,6 +119,11 @@
         const targetScreen = document.getElementById(screenId);
         if (targetScreen) targetScreen.classList.add('active');
         if (btnElement) btnElement.classList.add('active');
+
+        // تطبيق وضع الصلاحية (تعديل كامل أم اطلاع فقط) على الشاشة الحالية
+        if (typeof applyScreenAccessMode === 'function') {
+            applyScreenAccessMode(screenId);
+        }
 
         if (screenId !== 'screen-bulk-payslips' && screenId !== 'screen-payroll-delivery') {
             previousScreenBeforeBulk = screenId;

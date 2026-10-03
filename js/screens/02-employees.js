@@ -279,8 +279,27 @@
             ovMore: parseFloat((rate * 2.0).toFixed(2))
 
         };
-
     }
+
+    function onEmpNoUserCheckboxChanged(mode) {
+        const isNew = mode === 'new';
+        const noUserChk = document.getElementById(isNew ? 'new-emp-no-user' : 'edit-emp-no-user');
+        const userFields = document.getElementById(isNew ? 'new-emp-user-fields' : 'edit-emp-user-fields');
+        const hint = document.getElementById(isNew ? 'new-emp-user-hint' : 'edit-emp-user-hint');
+
+        if (!noUserChk || !userFields) return;
+
+        if (noUserChk.checked) {
+            userFields.style.opacity = '0.35';
+            userFields.style.pointerEvents = 'none';
+            if (hint) hint.textContent = '🚫 لن يتم إنشاء أي حساب مستخدم لهذا الموظف (سركي ورقي فقط)';
+        } else {
+            userFields.style.opacity = '1';
+            userFields.style.pointerEvents = 'auto';
+            if (hint) hint.textContent = '✔ سيتم تفعيل حساب مستخدم للموظف لتسجيل الدخول للاطلاع على السركي';
+        }
+    }
+    window.onEmpNoUserCheckboxChanged = onEmpNoUserCheckboxChanged;
 
 
 
@@ -308,51 +327,74 @@
 
 
 
+        const noUserChk = document.getElementById('new-emp-no-user');
+        const hasNoUser = noUserChk ? noUserChk.checked : false;
+        const usernameInput = document.getElementById('new-emp-username');
+        const passwordInput = document.getElementById('new-emp-password');
+
+        const assignedCode = getNextCodeForDept(job);
+        const username = hasNoUser ? '' : (usernameInput && usernameInput.value.trim() ? usernameInput.value.trim().toLowerCase() : `emp_${assignedCode}`);
+        const pin = hasNoUser ? '' : (passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : '1234');
+
         const newEmp = {
-
-            id: getNextCodeForDept(job),
-
+            id: assignedCode,
             name: name,
-
             job: job,
-
             basicSalary: basic,
-
             shiftHours: shiftHours,
-
             hourlyRate: rates.hourlyRate,
-
             overtime1: rates.ov1,
-
             overtime2: rates.ov2,
-
             overtimeMore: rates.ovMore,
-
             offDay: offDay,
-
             lastIncreaseMonth: '-',
-
             salaryBefore: basic,
-
             increaseAmount: 0,
-
-            status: 'نشط'
-
+            status: 'نشط',
+            hasNoUser: hasNoUser,
+            username: username
         };
 
+        // إنشاء حساب المستخدم في قاعدة بيانات المستخدمين إذا لم يكن معلماً بدون يوزر
+        if (!hasNoUser && username) {
+            if (typeof usersDb !== 'undefined' && Array.isArray(usersDb)) {
+                // التأكد من عدم تكرار اسم المستخدم
+                let finalUsername = username;
+                let counter = 1;
+                while (usersDb.some(u => u.username.toLowerCase() === finalUsername.toLowerCase())) {
+                    finalUsername = `${username}_${counter}`;
+                    counter++;
+                }
+                newEmp.username = finalUsername;
 
+                usersDb.push({
+                    username: finalUsername,
+                    fullName: name,
+                    role: 'employee',
+                    empId: assignedCode,
+                    pin: pin,
+                    permissions: ['screen-employee-sarki'],
+                    screenAccess: { 'screen-employee-sarki': 'view' },
+                    createdAt: new Date().toISOString().split('T')[0]
+                });
+                localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+                if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
+                if (typeof renderUsersTable === 'function') renderUsersTable();
+                if (typeof populateUserSelectDropdowns === 'function') populateUserSelectDropdowns();
+            }
+        }
 
         pushEmpHistory();
-
         employees.push(newEmp);
-
         saveEmployees();
 
         this.reset();
-
         document.getElementById('new-emp-shift-hours').value = '8';
+        if (noUserChk) noUserChk.checked = false;
+        onEmpNoUserCheckboxChanged('new');
 
-        alert(`تم تكويد وحفظ الموظف (${name}) بنجاح في المنظومة!`);
+        const userMsg = hasNoUser ? 'بدون حساب مستخدم (سركي ورقي فقط)' : `مع تفعيل حساب مستخدم: [${newEmp.username}]`;
+        alert(`تم تكويد وحفظ الموظف (${name}) بنجاح!\n${userMsg}`);
 
     });
 
@@ -437,11 +479,14 @@
                 tr.innerHTML = `
 
                     <td class="sticky-col-1"><strong>#${e.id}</strong></td>
-
                     <td class="sticky-col-2"><strong>${e.name}</strong></td>
-
                     <td class="sticky-col-3"><span class="badge badge-dept">${e.job}</span></td>
-
+                    <td>
+                        ${(e.hasNoUser === true)
+                            ? '<span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700;">🚫 بدون يوزر</span>'
+                            : `<span class="badge badge-status-active" style="font-family:Consolas, monospace;">👤 ${e.username || ('emp_' + e.id)}</span>`
+                        }
+                    </td>
                     <td>${e.offDay || '-'}</td>
 
                     <td style="color:var(--accent); font-weight:bold;">${Number(e.basicSalary).toLocaleString()} ج.م</td>
@@ -519,10 +564,23 @@
         document.getElementById('edit-emp-shift-hours').value = emp.shiftHours || 8;
 
         document.getElementById('edit-emp-off').value = emp.offDay || 'الجمعة (Friday)';
-
         document.getElementById('edit-emp-status').value = emp.status || 'نشط';
 
+        // ضبط بيانات حساب المستخدم
+        const noUserChk = document.getElementById('edit-emp-no-user');
+        const usernameInput = document.getElementById('edit-emp-username');
+        const passwordInput = document.getElementById('edit-emp-password');
 
+        if (noUserChk) {
+            noUserChk.checked = emp.hasNoUser === true;
+        }
+        if (usernameInput) {
+            usernameInput.value = emp.username || (emp.hasNoUser ? '' : `emp_${emp.id}`);
+        }
+        if (passwordInput) {
+            passwordInput.value = '';
+        }
+        onEmpNoUserCheckboxChanged('edit');
 
         document.getElementById('modal-edit-emp').style.display = 'flex';
 
@@ -568,25 +626,63 @@
 
         emp.status = document.getElementById('edit-emp-status').value;
 
+        // معالجة حساب المستخدم عند التعديل
+        const noUserChk = document.getElementById('edit-emp-no-user');
+        const hasNoUser = noUserChk ? noUserChk.checked : false;
+        const usernameInput = document.getElementById('edit-emp-username');
+        const passwordInput = document.getElementById('edit-emp-password');
 
+        emp.hasNoUser = hasNoUser;
+
+        if (hasNoUser) {
+            // حذف أو إيقاف الحساب للمستخدم
+            emp.username = '';
+            if (typeof usersDb !== 'undefined' && Array.isArray(usersDb)) {
+                usersDb = usersDb.filter(u => u.empId !== emp.id);
+                localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+                if (typeof renderUsersTable === 'function') renderUsersTable();
+                if (typeof populateUserSelectDropdowns === 'function') populateUserSelectDropdowns();
+            }
+        } else {
+            const enteredUsername = usernameInput && usernameInput.value.trim() ? usernameInput.value.trim().toLowerCase() : (emp.username || `emp_${emp.id}`);
+            const enteredPin = passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : null;
+
+            emp.username = enteredUsername;
+
+            if (typeof usersDb !== 'undefined' && Array.isArray(usersDb)) {
+                let user = usersDb.find(u => u.empId === emp.id || u.username.toLowerCase() === enteredUsername.toLowerCase());
+                if (user) {
+                    user.username = enteredUsername;
+                    user.fullName = emp.name;
+                    user.empId = emp.id;
+                    if (enteredPin) user.pin = enteredPin;
+                } else {
+                    usersDb.push({
+                        username: enteredUsername,
+                        fullName: emp.name,
+                        role: 'employee',
+                        empId: emp.id,
+                        pin: enteredPin || '1234',
+                        permissions: ['screen-employee-sarki'],
+                        screenAccess: { 'screen-employee-sarki': 'view' },
+                        createdAt: new Date().toISOString().split('T')[0]
+                    });
+                }
+                localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+                if (typeof renderUsersTable === 'function') renderUsersTable();
+                if (typeof populateUserSelectDropdowns === 'function') populateUserSelectDropdowns();
+            }
+        }
 
         const rates = computeRates(newBasic, newShift);
-
         emp.hourlyRate = rates.hourlyRate;
-
         emp.overtime1 = rates.ov1;
-
         emp.overtime2 = rates.ov2;
-
         emp.overtimeMore = rates.ovMore;
 
-
-
         saveEmployees();
-
         closeEditModal();
-
-        alert('تم تعديل بيانات الموظف بنجاح!');
+        alert('تم تعديل بيانات الموظف وحساب المستخدم بنجاح!');
 
     });
 
@@ -964,89 +1060,108 @@
 
             const currentVal = bulkDeptFilter.value;
 
-            bulkDeptFilter.innerHTML = '<option value="">جميع الأقسام</option>';
+            bulkDeptFilter.innerHTML = '<option value="">جميع الأقسام (الكل)</option>';
+            bulkDeptFilter.innerHTML += '<option value="__NO_USER__" style="color:#b91c1c; font-weight:bold;">📋 موظفين بدون يوزر (سراكي ورقية فقط)</option>';
 
             sortedDepts.forEach(d => {
-
                 const opt = document.createElement('option');
-
                 opt.value = d;
-
                 opt.textContent = d;
-
                 bulkDeptFilter.appendChild(opt);
-
             });
 
-            if (sortedDepts.includes(currentVal)) {
-
+            if (sortedDepts.includes(currentVal) || currentVal === '__NO_USER__') {
                 bulkDeptFilter.value = currentVal;
-
             }
-
         }
 
-
-
         const jobsList = document.getElementById('jobs-list');
-
         if (jobsList) {
-
             jobsList.innerHTML = '';
-
             sortedDepts.forEach(d => {
-
                 const opt = document.createElement('option');
-
                 opt.value = d;
-
                 jobsList.appendChild(opt);
-
             });
-
         }
 
         if (typeof refreshAllSearchableSelects === 'function') refreshAllSearchableSelects();
-
     }
-
-
 
     function populateAllEmployeeDropdowns() {
-
         const selects = ['att-emp-select', 'sarki-emp-select', 'rep-emp-profile-select'];
-
         selects.forEach(id => {
-
             const el = document.getElementById(id);
-
             if (!el) return;
-
             const currentVal = el.value;
-
             el.innerHTML = '<option value="">-- اختر موظف من القائمة --</option>';
-
             employees.filter(e => e.status !== 'انتهت خدمته').forEach(emp => {
-
                 const opt = document.createElement('option');
-
                 opt.value = emp.id;
-
                 opt.textContent = emp.name;
-
                 el.appendChild(opt);
-
             });
-
             if (currentVal) el.value = currentVal;
-
         });
 
-
-
-        document.getElementById('badge-emp-count').innerText = employees.filter(e => e.status !== 'انتهت خدمته').length;
-
+        const badgeEl = document.getElementById('badge-emp-count');
+        if (badgeEl) badgeEl.innerText = employees.filter(e => e.status !== 'انتهت خدمته').length;
     }
+
+    // ── مزامنة حسابات المستخدمين لجميع الموظفين الحاليين ────────────────
+    function syncEmployeesWithUsersDb() {
+        if (typeof employees === 'undefined' || !Array.isArray(employees)) return;
+        if (typeof usersDb === 'undefined' || !Array.isArray(usersDb)) return;
+
+        let empChanged = false;
+        let usersChanged = false;
+
+        employees.forEach(emp => {
+            if (!emp) return;
+            if (emp.hasNoUser === undefined) {
+                emp.hasNoUser = false;
+                empChanged = true;
+            }
+            if (!emp.hasNoUser) {
+                if (!emp.username) {
+                    emp.username = `emp_${emp.id}`;
+                    empChanged = true;
+                }
+
+                let user = usersDb.find(u => u.empId === emp.id || (u.username && u.username.toLowerCase() === emp.username.toLowerCase()));
+                if (!user) {
+                    user = {
+                        username: emp.username,
+                        fullName: emp.name,
+                        role: 'employee',
+                        empId: emp.id,
+                        pin: '1234',
+                        permissions: ['screen-employee-sarki'],
+                        screenAccess: { 'screen-employee-sarki': 'view' },
+                        createdAt: new Date().toISOString().split('T')[0]
+                    };
+                    usersDb.push(user);
+                    usersChanged = true;
+                } else {
+                    if (!user.empId) { user.empId = emp.id; usersChanged = true; }
+                    if (!user.screenAccess) { user.screenAccess = { 'screen-employee-sarki': 'view' }; usersChanged = true; }
+                }
+            }
+        });
+
+        if (empChanged) {
+            localStorage.setItem('erp_employees_db', JSON.stringify(employees));
+        }
+        if (usersChanged) {
+            localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+            if (typeof renderUsersTable === 'function') renderUsersTable();
+            if (typeof populateUserSelectDropdowns === 'function') populateUserSelectDropdowns();
+        }
+    }
+
+    // تشغيل المزامنة فوراً عند تحميل ملف الموظفين
+    syncEmployeesWithUsersDb();
+    window.syncEmployeesWithUsersDb = syncEmployeesWithUsersDb;
 
 
 

@@ -57,7 +57,8 @@
         if (deptSel) {
             const deptsSet = new Set();
             (employees || []).forEach(e => { if (e && e.job) deptsSet.add(e.job.trim()); });
-            deptSel.innerHTML = '<option value="">جميع الأقسام</option>';
+            deptSel.innerHTML = '<option value="">جميع الأقسام (الكل)</option>';
+            deptSel.innerHTML += '<option value="__NO_USER__" style="color:#b91c1c; font-weight:bold;">📋 موظفين بدون يوزر (سراكي ورقية فقط)</option>';
             Array.from(deptsSet).sort().forEach(d => {
                 const opt = document.createElement('option');
                 opt.value = d;
@@ -73,7 +74,11 @@
         return (employees || []).filter(emp => {
             if (!emp) return false;
             if (emp.status === 'انتهت خدمته') return false;
-            if (deptFilter && emp.job !== deptFilter) return false;
+            if (deptFilter === '__NO_USER__') {
+                return (emp.hasNoUser === true) || !emp.username;
+            } else if (deptFilter && emp.job !== deptFilter) {
+                return false;
+            }
             return true;
         }).sort((a, b) => {
             const deptA = a.job || '';

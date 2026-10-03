@@ -1,5 +1,6 @@
     // ====================================================================
-    // نظام المستخدمين وإدارة الصلاحيات لكل شاشة (Users & Screen Permissions)
+    // نظام المستخدمين وإدارة الصلاحيات (اطلاع وتعديل لكل شاشة)
+    // Users & Screen Permissions (View & Edit Granular Control)
     // منظومة عيادات سيدى ياقوت التخصصية
     // ====================================================================
 
@@ -121,7 +122,7 @@
 
     const ALL_SCREEN_IDS = ALL_SYSTEM_SCREENS.map(s => s.id);
 
-    // المستخدمين الافتراضيين بصلاحياتهم المعيارية
+    // المستخدمين الافتراضيين بصلاحياتهم المعيارية (اطلاع وتعديل)
     const DEFAULT_USERS = [
         {
             username: 'admin',
@@ -129,6 +130,7 @@
             role: 'admin',
             pin: '1234',
             permissions: [...ALL_SCREEN_IDS],
+            screenAccess: ALL_SCREEN_IDS.reduce((acc, sid) => ({ ...acc, [sid]: 'edit' }), {}),
             createdAt: '2026-01-01'
         },
         {
@@ -137,19 +139,24 @@
             role: 'accountant',
             pin: '1234',
             permissions: [
-                'screen-welcome',
-                'screen-employees',
-                'screen-attendance',
-                'screen-salary-adjustments',
-                'screen-payroll-summary',
-                'screen-single-sarki',
-                'screen-bulk-payslips',
-                'screen-payroll-delivery',
-                'screen-emp-general-report',
-                'screen-totals-report',
-                'screen-backup-restore',
-                'screen-firebase-settings'
+                'screen-welcome', 'screen-employees', 'screen-attendance', 'screen-salary-adjustments',
+                'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery',
+                'screen-emp-general-report', 'screen-totals-report', 'screen-backup-restore', 'screen-firebase-settings'
             ],
+            screenAccess: {
+                'screen-welcome': 'view',
+                'screen-employees': 'view',
+                'screen-attendance': 'view',
+                'screen-salary-adjustments': 'edit',
+                'screen-payroll-summary': 'edit',
+                'screen-single-sarki': 'edit',
+                'screen-bulk-payslips': 'edit',
+                'screen-payroll-delivery': 'edit',
+                'screen-emp-general-report': 'view',
+                'screen-totals-report': 'view',
+                'screen-backup-restore': 'edit',
+                'screen-firebase-settings': 'edit'
+            },
             createdAt: '2026-01-01'
         },
         {
@@ -157,44 +164,40 @@
             fullName: 'مشرف الحضور',
             role: 'supervisor',
             pin: '1234',
-            permissions: [
-                'screen-welcome',
-                'screen-attendance'
-            ],
+            permissions: ['screen-welcome', 'screen-attendance'],
+            screenAccess: {
+                'screen-welcome': 'view',
+                'screen-attendance': 'edit'
+            },
             createdAt: '2026-01-01'
         }
     ];
 
-    // ترحيل وتأكيد وجود مصفوفة الصلاحيات لكل مستخدم في قاعدة البيانات
+    // ترحيل وتأكيد وجود مصفوفة الصلاحيات وخريطة الاطلاع والتعديل لكل مستخدم
     function migrateUsersDb(db) {
         if (!Array.isArray(db) || db.length === 0) return DEFAULT_USERS;
         return db.map(u => {
-            if (!u.permissions || !Array.isArray(u.permissions) || u.permissions.length === 0) {
+            if (!u.screenAccess || typeof u.screenAccess !== 'object') {
+                u.screenAccess = {};
                 if (u.role === 'admin') {
-                    u.permissions = [...ALL_SCREEN_IDS];
+                    ALL_SCREEN_IDS.forEach(sid => { u.screenAccess[sid] = 'edit'; });
                 } else if (u.role === 'accountant') {
-                    u.permissions = [
-                        'screen-welcome',
-                        'screen-employees',
-                        'screen-attendance',
-                        'screen-salary-adjustments',
-                        'screen-payroll-summary',
-                        'screen-single-sarki',
-                        'screen-bulk-payslips',
-                        'screen-payroll-delivery',
-                        'screen-emp-general-report',
-                        'screen-totals-report',
-                        'screen-backup-restore',
-                        'screen-firebase-settings'
-                    ];
+                    const editScreens = ['screen-salary-adjustments', 'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery', 'screen-backup-restore', 'screen-firebase-settings'];
+                    const viewScreens = ['screen-welcome', 'screen-employees', 'screen-attendance', 'screen-emp-general-report', 'screen-totals-report'];
+                    editScreens.forEach(sid => { u.screenAccess[sid] = 'edit'; });
+                    viewScreens.forEach(sid => { u.screenAccess[sid] = 'view'; });
                 } else if (u.role === 'supervisor') {
-                    u.permissions = ['screen-welcome', 'screen-attendance'];
+                    u.screenAccess['screen-attendance'] = 'edit';
+                    u.screenAccess['screen-welcome'] = 'view';
                 } else if (u.role === 'employee') {
-                    u.permissions = ['screen-employee-sarki'];
+                    u.screenAccess['screen-employee-sarki'] = 'view';
                 } else {
-                    u.permissions = ['screen-welcome'];
+                    u.screenAccess['screen-welcome'] = 'view';
                 }
             }
+
+            // مزامنة permissions كمصفوفة من الشاشات التي يحق له رؤيتها
+            u.permissions = Object.keys(u.screenAccess).filter(sid => u.screenAccess[sid] && u.screenAccess[sid] !== 'none');
             return u;
         });
     }
@@ -220,7 +223,6 @@
         } catch(e) {}
     }
 
-    // إذا لم تكن هناك جلسة نشطة، اجعل المستخدم الحالي مجهزاً ولكن بدون مصادقة
     if (!currentUser) {
         currentUser = usersDb[0];
     }
@@ -229,13 +231,68 @@
     window.currentUser = currentUser;
     window.isUserAuthenticated = isUserAuthenticated;
 
+    // ── دوال فحص مستويات الصلاحية (اطلاع / تعديل) ─────────────────────
+    function canViewScreen(screenId) {
+        if (!currentUser) return false;
+        if (currentUser.role === 'admin') return true;
+        if (currentUser.screenAccess && currentUser.screenAccess[screenId]) {
+            return currentUser.screenAccess[screenId] === 'edit' || currentUser.screenAccess[screenId] === 'view';
+        }
+        return Array.isArray(currentUser.permissions) && currentUser.permissions.includes(screenId);
+    }
+
+    function canEditScreen(screenId) {
+        if (!currentUser) return false;
+        if (currentUser.role === 'admin') return true;
+        if (currentUser.screenAccess && currentUser.screenAccess[screenId]) {
+            return currentUser.screenAccess[screenId] === 'edit';
+        }
+        return false;
+    }
+
+    // تطبيق وضع الاطلاع فقط على واجهة الشاشة
+    function applyScreenAccessMode(screenId) {
+        const screenEl = document.getElementById(screenId);
+        if (!screenEl) return;
+
+        // إزالة أي شريط تنبيه سابق
+        const oldBanner = screenEl.querySelector('.screen-view-only-banner');
+        if (oldBanner) oldBanner.remove();
+
+        const isEditAllowed = canEditScreen(screenId);
+
+        if (!isEditAllowed) {
+            screenEl.classList.add('view-only-mode');
+            const banner = document.createElement('div');
+            banner.className = 'screen-view-only-banner';
+            banner.innerHTML = `
+                <span style="font-size:20px;">👁️</span>
+                <div>
+                    <strong>وضع الاطلاع فقط (عرض واستعراض):</strong>
+                    <span style="font-weight:normal; margin-right:4px;">لديك صلاحية تصفح واستعراض وطباعة بيانات هذه الشاشة فقط، ولا يمكنك إضافة أو تعديل أو حفظ أو حذف أي سجلات.</span>
+                </div>
+            `;
+            const header = screenEl.querySelector('.content-header');
+            if (header) {
+                header.after(banner);
+            } else {
+                screenEl.prepend(banner);
+            }
+        } else {
+            screenEl.classList.remove('view-only-mode');
+        }
+    }
+
+    window.canViewScreen = canViewScreen;
+    window.canEditScreen = canEditScreen;
+    window.applyScreenAccessMode = applyScreenAccessMode;
+
     // ── تهيئة نظام المصادقة والصلاحيات ──────────────────────────────────
     function initAuthSystem() {
         renderPermissionsCheckboxes();
         populateUserSelectDropdowns();
 
         if (!isUserAuthenticated) {
-            // قفل المنظومة فوراً عند فتح البرنامج لأول مرة
             lockScreenModal();
         } else {
             document.body.classList.remove('app-locked');
@@ -264,9 +321,7 @@
         if (pInput) pInput.value = '';
 
         const modal = document.getElementById('modal-lock-screen');
-        if (modal) {
-            modal.style.display = 'flex';
-        }
+        if (modal) modal.style.display = 'flex';
 
         setTimeout(() => {
             if (uInput && !uInput.value.trim()) {
@@ -320,7 +375,6 @@
             return;
         }
 
-        // نجاح تسجيل الدخول
         currentUser = user;
         isUserAuthenticated = true;
         window.currentUser = currentUser;
@@ -376,35 +430,29 @@
         badgeEl.textContent = roleText;
     }
 
-    // ── رسم شبكة كروت اختيار الصلاحيات في نموذج المستخدم ────────────────
-    function renderPermissionsCheckboxes(selectedPermissions) {
+    // ── رسم شبكة كروت الصلاحيات (اطلاع وتعديل) في نموذج المستخدم ───────
+    function renderPermissionsCheckboxes(screenAccessConfig) {
         const container = document.getElementById('screen-permissions-grid');
         if (!container) return;
 
-        const effectiveSelected = Array.isArray(selectedPermissions)
-            ? selectedPermissions
-            : (selectedPermissions ? ALL_SCREEN_IDS : [...ALL_SCREEN_IDS]);
+        const accessMap = screenAccessConfig || ALL_SCREEN_IDS.reduce((acc, sid) => ({ ...acc, [sid]: 'edit' }), {});
 
         container.innerHTML = '';
 
         ALL_SYSTEM_SCREENS.forEach(screen => {
-            const isChecked = effectiveSelected.includes(screen.id);
+            const level = accessMap[screen.id] || 'none';
+            const isView = level === 'view' || level === 'edit';
+            const isEdit = level === 'edit';
+
+            let cardClass = '';
+            if (isEdit) cardClass = 'perm-edit-active';
+            else if (isView) cardClass = 'perm-view-active';
+
             const card = document.createElement('div');
-            card.className = `permission-card ${isChecked ? 'selected' : ''}`;
+            card.className = `permission-card ${cardClass}`;
             card.id = `perm-card-${screen.id}`;
-            card.onclick = function(e) {
-                if (e.target.tagName !== 'INPUT') {
-                    const chk = card.querySelector('input[type="checkbox"]');
-                    if (chk) {
-                        chk.checked = !chk.checked;
-                        onPermissionCheckboxChanged(chk);
-                    }
-                }
-            };
 
             card.innerHTML = `
-                <input type="checkbox" name="user_permission" value="${screen.id}" id="chk-perm-${screen.id}" 
-                       ${isChecked ? 'checked' : ''} onchange="onPermissionCheckboxChanged(this)">
                 <div class="permission-card-body">
                     <div class="permission-card-title">
                         <span>${screen.icon}</span>
@@ -412,6 +460,19 @@
                         <span class="permission-badge-cat ${screen.catClass}">${screen.category}</span>
                     </div>
                     <div class="permission-card-desc">${screen.desc}</div>
+                    
+                    <div class="permission-actions-bar">
+                        <label class="perm-option-label perm-view-label" title="السماح باستعراض وقراءة بيانات الشاشة">
+                            <input type="checkbox" id="chk-view-${screen.id}" class="chk-perm-view" 
+                                   ${isView ? 'checked' : ''} onchange="onPermLevelChanged('${screen.id}', 'view')">
+                            <span>👁️ اطلاع (عرض)</span>
+                        </label>
+                        <label class="perm-option-label perm-edit-label" title="السماح بالإدخال والتعديل والحفظ والحذف">
+                            <input type="checkbox" id="chk-edit-${screen.id}" class="chk-perm-edit" 
+                                   ${isEdit ? 'checked' : ''} onchange="onPermLevelChanged('${screen.id}', 'edit')">
+                            <span>✏️ تعديل (كامل)</span>
+                        </label>
+                    </div>
                 </div>
             `;
             container.appendChild(card);
@@ -420,89 +481,115 @@
         updatePermissionsCounter();
     }
 
-    function onPermissionCheckboxChanged(checkbox) {
-        const card = document.getElementById(`perm-card-${checkbox.value}`);
-        if (card) {
-            if (checkbox.checked) {
-                card.classList.add('selected');
-            } else {
-                card.classList.remove('selected');
+    function onPermLevelChanged(screenId, changedField) {
+        const chkView = document.getElementById(`chk-view-${screenId}`);
+        const chkEdit = document.getElementById(`chk-edit-${screenId}`);
+        const card = document.getElementById(`perm-card-${screenId}`);
+        if (!chkView || !chkEdit || !card) return;
+
+        if (changedField === 'edit') {
+            if (chkEdit.checked) {
+                // التعديل يتضمن الاطلاع تلقائياً
+                chkView.checked = true;
+            }
+        } else if (changedField === 'view') {
+            if (!chkView.checked) {
+                // إلغاء الاطلاع يلغي التعديل تلقائياً
+                chkEdit.checked = false;
             }
         }
+
+        card.classList.remove('perm-edit-active', 'perm-view-active');
+        if (chkEdit.checked) {
+            card.classList.add('perm-edit-active');
+        } else if (chkView.checked) {
+            card.classList.add('perm-view-active');
+        }
+
         updatePermissionsCounter();
     }
 
     function updatePermissionsCounter() {
-        const checked = document.querySelectorAll('input[name="user_permission"]:checked');
+        const editCount = document.querySelectorAll('.chk-perm-edit:checked').length;
+        const viewOnlyCount = Array.from(document.querySelectorAll('.chk-perm-view:checked')).filter(v => {
+            const sid = v.id.replace('chk-view-', '');
+            const ed = document.getElementById(`chk-edit-${sid}`);
+            return !ed || !ed.checked;
+        }).length;
+
         const counter = document.getElementById('perm-selected-counter');
         if (counter) {
-            counter.textContent = `${checked.length} من ${ALL_SYSTEM_SCREENS.length} شاشة`;
-            if (checked.length === ALL_SYSTEM_SCREENS.length) {
+            if (editCount === ALL_SYSTEM_SCREENS.length) {
+                counter.textContent = `🟢 صلاحية كاملة (14 تعديل)`;
                 counter.className = 'badge badge-status-active';
-            } else if (checked.length === 0) {
+            } else if (editCount === 0 && viewOnlyCount === 0) {
+                counter.textContent = `🔴 محجوب (0 مسموح)`;
                 counter.className = 'badge badge-status-inactive';
             } else {
+                counter.textContent = `✏️ ${editCount} تعديل | 👁️ ${viewOnlyCount} اطلاع فقط`;
                 counter.className = 'badge badge-dept';
             }
         }
     }
 
-    function getSelectedScreenPermissions() {
-        const checkboxes = document.querySelectorAll('input[name="user_permission"]:checked');
-        return Array.from(checkboxes).map(c => c.value);
+    function getSelectedScreenAccess() {
+        const accessMap = {};
+        ALL_SYSTEM_SCREENS.forEach(screen => {
+            const chkView = document.getElementById(`chk-view-${screen.id}`);
+            const chkEdit = document.getElementById(`chk-edit-${screen.id}`);
+            if (chkEdit && chkEdit.checked) {
+                accessMap[screen.id] = 'edit';
+            } else if (chkView && chkView.checked) {
+                accessMap[screen.id] = 'view';
+            } else {
+                accessMap[screen.id] = 'none';
+            }
+        });
+        return accessMap;
     }
 
-    function setAllScreenPermissions(selectAll) {
-        const checkboxes = document.querySelectorAll('input[name="user_permission"]');
-        checkboxes.forEach(chk => {
-            chk.checked = selectAll;
-            const card = document.getElementById(`perm-card-${chk.value}`);
-            if (card) {
-                if (selectAll) card.classList.add('selected');
-                else card.classList.remove('selected');
+    function setAllScreenPermissions(level) {
+        ALL_SYSTEM_SCREENS.forEach(screen => {
+            const chkView = document.getElementById(`chk-view-${screen.id}`);
+            const chkEdit = document.getElementById(`chk-edit-${screen.id}`);
+            const card = document.getElementById(`perm-card-${screen.id}`);
+
+            if (level === 'edit') {
+                if (chkView) chkView.checked = true;
+                if (chkEdit) chkEdit.checked = true;
+                if (card) { card.className = 'permission-card perm-edit-active'; }
+            } else if (level === 'view') {
+                if (chkView) chkView.checked = true;
+                if (chkEdit) chkEdit.checked = false;
+                if (card) { card.className = 'permission-card perm-view-active'; }
+            } else {
+                if (chkView) chkView.checked = false;
+                if (chkEdit) chkEdit.checked = false;
+                if (card) { card.className = 'permission-card'; }
             }
         });
         updatePermissionsCounter();
     }
 
     function applyRolePresetPermissions(role) {
-        let presetScreens = [];
+        const accessConfig = {};
         if (role === 'admin') {
-            presetScreens = [...ALL_SCREEN_IDS];
+            ALL_SCREEN_IDS.forEach(sid => { accessConfig[sid] = 'edit'; });
         } else if (role === 'accountant') {
-            presetScreens = [
-                'screen-welcome',
-                'screen-employees',
-                'screen-attendance',
-                'screen-salary-adjustments',
-                'screen-payroll-summary',
-                'screen-single-sarki',
-                'screen-bulk-payslips',
-                'screen-payroll-delivery',
-                'screen-emp-general-report',
-                'screen-totals-report',
-                'screen-backup-restore',
-                'screen-firebase-settings'
-            ];
+            const editScreens = ['screen-salary-adjustments', 'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery', 'screen-backup-restore', 'screen-firebase-settings'];
+            const viewScreens = ['screen-welcome', 'screen-employees', 'screen-attendance', 'screen-emp-general-report', 'screen-totals-report'];
+            editScreens.forEach(sid => { accessConfig[sid] = 'edit'; });
+            viewScreens.forEach(sid => { accessConfig[sid] = 'view'; });
         } else if (role === 'supervisor') {
-            presetScreens = ['screen-welcome', 'screen-attendance'];
+            accessConfig['screen-attendance'] = 'edit';
+            accessConfig['screen-welcome'] = 'view';
         } else if (role === 'employee') {
-            presetScreens = ['screen-employee-sarki'];
+            accessConfig['screen-employee-sarki'] = 'view';
         } else {
-            presetScreens = ['screen-welcome'];
+            accessConfig['screen-welcome'] = 'view';
         }
 
-        const checkboxes = document.querySelectorAll('input[name="user_permission"]');
-        checkboxes.forEach(chk => {
-            const shouldCheck = presetScreens.includes(chk.value);
-            chk.checked = shouldCheck;
-            const card = document.getElementById(`perm-card-${chk.value}`);
-            if (card) {
-                if (shouldCheck) card.classList.add('selected');
-                else card.classList.remove('selected');
-            }
-        });
-        updatePermissionsCounter();
+        renderPermissionsCheckboxes(accessConfig);
     }
 
     function onNewUserRoleChanged() {
@@ -529,35 +616,31 @@
     function applyRolePermissions() {
         if (!currentUser) return;
 
-        // التأكد من وجود الصلاحيات
-        if (!currentUser.permissions || !Array.isArray(currentUser.permissions)) {
-            currentUser.permissions = (currentUser.role === 'admin') ? [...ALL_SCREEN_IDS] : ['screen-welcome'];
-        }
-
-        const userPerms = currentUser.permissions;
         const isAdmin = currentUser.role === 'admin';
 
-        // إظهار/إخفاء أزرار الشاشات في القائمة الجانبية
+        // إظهار/إخفاء أزرار الشاشات في القائمة الجانبية بحسب إمكانية الاطلاع
         ALL_SYSTEM_SCREENS.forEach(screen => {
             const navBtn = document.getElementById(`nav-${screen.id}`);
             if (!navBtn) return;
 
-            const isAllowed = isAdmin || userPerms.includes(screen.id);
+            const isAllowed = isAdmin || canViewScreen(screen.id);
             navBtn.style.display = isAllowed ? 'flex' : 'none';
         });
 
         // التحقق من أن الشاشة الحالية مسموح بها للمستخدم
         const activeView = document.querySelector('.screen-view.active');
         const activeScreenId = activeView ? activeView.id : 'screen-welcome';
-        const isCurrentAllowed = isAdmin || userPerms.includes(activeScreenId);
+        const isCurrentAllowed = isAdmin || canViewScreen(activeScreenId);
 
         if (!isCurrentAllowed) {
-            // تحويل المستخدم لأول شاشة مصرح له بفتحها
-            const firstAllowed = ALL_SYSTEM_SCREENS.find(s => isAdmin || userPerms.includes(s.id));
+            const firstAllowed = ALL_SYSTEM_SCREENS.find(s => isAdmin || canViewScreen(s.id));
             if (firstAllowed && typeof switchScreen === 'function') {
                 const targetBtn = document.getElementById(`nav-${firstAllowed.id}`);
                 switchScreen(firstAllowed.id, targetBtn);
             }
+        } else {
+            // تطبيق وضع الاطلاع فقط إذا كانت الشاشة الحالية للعرض فقط
+            applyScreenAccessMode(activeScreenId);
         }
     }
 
@@ -573,8 +656,9 @@
 
         usersDb.forEach((u, idx) => {
             const isCurrent = currentUser && currentUser.username === u.username;
-            const perms = Array.isArray(u.permissions) ? u.permissions : [];
-            const isFull = perms.length === ALL_SYSTEM_SCREENS.length || u.role === 'admin';
+            const access = u.screenAccess || {};
+            const editCount = Object.keys(access).filter(k => access[k] === 'edit').length;
+            const viewCount = Object.keys(access).filter(k => access[k] === 'view').length;
 
             let roleName = 'مشرف حضور';
             let roleBadgeClass = 'role-supervisor';
@@ -597,14 +681,17 @@
                 roleBadgeClass = 'role-accountant';
             }
 
-            // ملخص الصلاحيات
+            // ملخص الصلاحيات المفصل
             let permsBadge = '';
-            if (isFull) {
-                permsBadge = `<span class="badge" style="background:#dcfce7; color:#15803d; font-weight:700;">🟢 صلاحية كاملة (${perms.length} شاشة)</span>`;
-            } else if (perms.length === 0) {
-                permsBadge = `<span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700;">🔴 لا توجد شاشات</span>`;
+            if (u.role === 'admin' || editCount === ALL_SYSTEM_SCREENS.length) {
+                permsBadge = `<span class="badge" style="background:#dcfce7; color:#15803d; font-weight:700;">🟢 صلاحية كاملة (14 تعديل)</span>`;
+            } else if (editCount === 0 && viewCount === 0) {
+                permsBadge = `<span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700;">🔴 محجوب (0)</span>`;
             } else {
-                permsBadge = `<span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">🔵 ${perms.length} من ${ALL_SYSTEM_SCREENS.length} شاشات</span>`;
+                let parts = [];
+                if (editCount > 0) parts.push(`<strong style="color:#059669;">✏️ ${editCount} تعديل</strong>`);
+                if (viewCount > 0) parts.push(`<strong style="color:#2563eb;">👁️ ${viewCount} اطلاع</strong>`);
+                permsBadge = `<span class="badge" style="background:#f0f9ff; border:1px solid #bae6fd;">${parts.join(' | ')}</span>`;
             }
 
             const tr = document.createElement('tr');
@@ -659,7 +746,7 @@
         if (editIdInput) editIdInput.value = user.username;
         if (usernameInput) {
             usernameInput.value = user.username;
-            usernameInput.disabled = true; // منع تغيير اسم المستخدم لتجنب تكرار المفاتيح
+            usernameInput.disabled = true;
         }
         if (fullnameInput) fullnameInput.value = user.fullName;
         if (roleSelect) roleSelect.value = user.role || 'custom';
@@ -672,8 +759,8 @@
             lblPassword.textContent = 'كلمة المرور (اختياري عند التعديل)';
         }
 
-        // إظهار كروت الصلاحيات المحددة لهذا المستخدم بالضبط
-        renderPermissionsCheckboxes(user.permissions || []);
+        // إظهار كروت الصلاحيات بحسب مستويات المستخدم (اطلاع / تعديل)
+        renderPermissionsCheckboxes(user.screenAccess || {});
 
         if (banner) banner.style.display = 'flex';
         if (bannerTitle) bannerTitle.textContent = `جاري تعديل صلاحيات المستخدم: ${user.fullName} (${user.username})`;
@@ -681,11 +768,8 @@
         if (submitBtn) submitBtn.textContent = '💾 حفظ تعديلات الصلاحيات';
         if (cancelBtn) cancelBtn.style.display = 'inline-block';
 
-        // التمرير إلى النموذج
         const formEl = document.getElementById('user-create-form');
-        if (formEl) {
-            formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+        if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     function cancelEditUser() {
@@ -722,7 +806,7 @@
         if (submitBtn) submitBtn.textContent = '💾 حفظ وإضافة المستخدم';
         if (cancelBtn) cancelBtn.style.display = 'none';
 
-        renderPermissionsCheckboxes([...ALL_SCREEN_IDS]);
+        applyRolePresetPermissions('admin');
         onNewUserRoleChanged();
     }
 
@@ -745,10 +829,12 @@
         const passwordInput = document.getElementById('new-user-password');
         const pin = passwordInput ? passwordInput.value.trim() : '';
 
-        // استخراج الصلاحيات المحددة
-        const selectedPermissions = getSelectedScreenPermissions();
-        if (selectedPermissions.length === 0) {
-            alert('⚠️ يرجى تحديد صلاحية شاشة واحدة على الأقل لهذا المستخدم!');
+        // استخراج خريطة الصلاحيات المحددة بدقة (اطلاع / تعديل)
+        const selectedAccess = getSelectedScreenAccess();
+        const allowedScreens = Object.keys(selectedAccess).filter(k => selectedAccess[k] !== 'none');
+
+        if (allowedScreens.length === 0) {
+            alert('⚠️ يرجى تحديد صلاحية (اطلاع أو تعديل) لشاشة واحدة على الأقل لهذا المستخدم!');
             return;
         }
 
@@ -763,7 +849,6 @@
         }
 
         if (isEditing) {
-            // تحديث مستخدم موجود
             const targetUser = usersDb.find(u => u.username === editingUsername);
             if (!targetUser) {
                 alert('⚠️ تعذر العثور على المستخدم المطلوب تعديله!');
@@ -773,15 +858,13 @@
             targetUser.fullName = fullName;
             targetUser.role = role;
             targetUser.empId = empId;
-            targetUser.permissions = selectedPermissions;
-            if (pin) {
-                targetUser.pin = pin;
-            }
+            targetUser.screenAccess = selectedAccess;
+            targetUser.permissions = allowedScreens;
+            if (pin) targetUser.pin = pin;
 
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
             if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
 
-            // إذا كان المستخدم المعدل هو نفسه المستخدم النشط حالياً
             if (currentUser && currentUser.username === editingUsername) {
                 currentUser = targetUser;
                 window.currentUser = currentUser;
@@ -795,7 +878,6 @@
             renderUsersTable();
             showToast(`تم تحديث صلاحيات المستخدم (${fullName}) بنجاح! 🛡️`, 'success');
         } else {
-            // إضافة مستخدم جديد
             if (usersDb.some(u => u.username === username)) {
                 alert('⚠️ اسم المستخدم هذا موجود بالفعل! يرجى اختيار اسم مستخدم آخر.');
                 return;
@@ -812,7 +894,8 @@
                 role: role,
                 empId: empId,
                 pin: pin,
-                permissions: selectedPermissions,
+                permissions: allowedScreens,
+                screenAccess: selectedAccess,
                 createdAt: new Date().toISOString().split('T')[0]
             };
 
@@ -823,7 +906,7 @@
             cancelEditUser();
             populateUserSelectDropdowns();
             renderUsersTable();
-            showToast(`تمت إضافة المستخدم (${fullName}) وتعيين صلاحياته بنجاح! 🎉`, 'success');
+            showToast(`تمت إضافة المستخدم (${fullName}) وتعيين صلاحيات الاطلاع والتعديل بنجاح! 🎉`, 'success');
         }
     }
 
@@ -921,7 +1004,7 @@
         if (sel) {
             sel.innerHTML = '<option value="">-- اختر اسمك من قائمة الموظفين --</option>';
             if (typeof employees !== 'undefined' && Array.isArray(employees)) {
-                employees.forEach(emp => {
+                employees.filter(e => e.status !== 'انتهت خدمته' && !e.hasNoUser).forEach(emp => {
                     const opt = document.createElement('option');
                     opt.value = emp.id;
                     opt.textContent = `${emp.name} (#${emp.id || emp.code}) - ${emp.job || 'موظف'}`;
@@ -953,7 +1036,7 @@
 
         const uInp = document.getElementById('self-reg-username');
         if (uInp && !uInp.value.trim()) {
-            uInp.value = 'emp_' + (emp.code ? emp.code.toLowerCase().replace(/\s+/g, '') : emp.id);
+            uInp.value = emp.username || ('emp_' + emp.id);
         }
     }
 
@@ -993,12 +1076,19 @@
             empId: empId,
             pin: pin,
             permissions: ['screen-employee-sarki'],
+            screenAccess: { 'screen-employee-sarki': 'view' },
             createdAt: new Date().toISOString().split('T')[0]
         };
 
         usersDb.push(newUser);
         localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
         if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
+
+        if (emp) {
+            emp.username = username;
+            emp.hasNoUser = false;
+            localStorage.setItem('erp_employees_db', JSON.stringify(employees));
+        }
 
         currentUser = newUser;
         isUserAuthenticated = true;
@@ -1052,7 +1142,7 @@
             fullNameInput.value = emp.name;
         }
         if (usernameInput && !usernameInput.value.trim()) {
-            usernameInput.value = 'emp_' + (emp.code ? emp.code.toLowerCase().replace(/\s+/g, '') : emp.id);
+            usernameInput.value = emp.username || ('emp_' + (emp.code ? emp.code.toLowerCase().replace(/\s+/g, '') : emp.id));
         }
     }
 
@@ -1064,6 +1154,7 @@
     window.handleUnlockSystem = handleUnlockSystem;
     window.togglePasswordVisibility = togglePasswordVisibility;
     window.renderPermissionsCheckboxes = renderPermissionsCheckboxes;
+    window.onPermLevelChanged = onPermLevelChanged;
     window.setAllScreenPermissions = setAllScreenPermissions;
     window.applyRolePresetPermissions = applyRolePresetPermissions;
     window.onNewUserRoleChanged = onNewUserRoleChanged;
