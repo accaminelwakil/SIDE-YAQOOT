@@ -49,7 +49,8 @@
 
         .app-layout {
             display: flex;
-            width: 100vw;
+            width: 100%;
+            max-width: 100%;
             min-height: 100vh;
         }
 
@@ -1322,7 +1323,27 @@
                 page-break-inside: avoid !important;
                 break-inside: avoid !important;
             }
-            #sarki-sheet-wrapper {
+            .a4-scalable-viewport {
+                height: auto !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow: visible !important;
+                margin-bottom: 0 !important;
+                transform: none !important;
+            }
+            .a4-mobile-zoom-toolbar {
+                display: none !important;
+            }
+            #bulk-payslips-container .bulk-page-section,
+            #sarki-sheet-wrapper,
+            #emp-sarki-sheet-wrapper {
+                transform: none !important;
+                transform-origin: initial !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            #sarki-sheet-wrapper,
+            #emp-sarki-sheet-wrapper {
                 box-shadow: none !important;
                 border: 1.5px solid #000 !important;
                 padding: 6px 8px !important;
@@ -1332,10 +1353,12 @@
                 box-sizing: border-box !important;
                 background: #ffffff !important;
             }
-            #sarki-sheet-wrapper * {
+            #sarki-sheet-wrapper *,
+            #emp-sarki-sheet-wrapper * {
                 box-sizing: border-box !important;
             }
-            #sarki-sheet-wrapper table {
+            #sarki-sheet-wrapper table,
+            #emp-sarki-sheet-wrapper table {
                 font-size: 9.5px !important;
                 margin-bottom: 5px !important;
                 width: 100% !important;
