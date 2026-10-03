@@ -329,6 +329,17 @@ function getEmployeeSelfSarkiPrintHtml() {
                     gap: 4px !important;
                     width: 100% !important;
                 }
+                .sarki-col-basic {
+                    flex: 46 1 0 !important;
+                    min-width: 0 !important;
+                    max-width: 48% !important;
+                }
+                .sarki-col-additions,
+                .sarki-col-deductions {
+                    flex: 27 1 0 !important;
+                    min-width: 0 !important;
+                    max-width: 28% !important;
+                }
             </style>
         </head>
         <body>

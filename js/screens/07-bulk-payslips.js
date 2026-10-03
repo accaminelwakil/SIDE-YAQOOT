@@ -251,9 +251,9 @@
             </table>
 
             <!-- 3 Middle Tables -->
-            <div style="display:flex; gap:3.5px; align-items:stretch; direction:rtl; width:100%; box-sizing:border-box;">
+            <div class="sarki-tables-row" style="display:flex; gap:3.5px; align-items:stretch; direction:rtl; width:100%; box-sizing:border-box;">
                 <!-- 1. الراتب الأساسي (اليمين) -->
-                <div style="flex:46 1 0; min-width:0; box-sizing:border-box;">
+                <div class="sarki-col-basic" style="flex:46 1 0; min-width:0; box-sizing:border-box;">
                     <table style="width:100%; border-collapse:collapse; font-size:8.5px; text-align:center;">
                         <thead>
                             <tr style="background:#e2e8f0; color:#000;">
@@ -312,7 +312,7 @@
                 </div>
 
                 <!-- 2. الإضافات (الوسط) -->
-                <div style="flex:27 1 0; min-width:0; box-sizing:border-box;">
+                <div class="sarki-col-additions" style="flex:27 1 0; min-width:0; box-sizing:border-box;">
                     <table style="width:100%; border-collapse:collapse; font-size:8.5px; text-align:center;">
                         <thead>
                             <tr style="background:#e2e8f0; color:#000;">
@@ -353,7 +353,7 @@
                 </div>
 
                 <!-- 3. الاستقطاعات (اليسار) -->
-                <div style="flex:27 1 0; min-width:0; box-sizing:border-box;">
+                <div class="sarki-col-deductions" style="flex:27 1 0; min-width:0; box-sizing:border-box;">
                     <table style="width:100%; border-collapse:collapse; font-size:8.5px; text-align:center;">
                         <thead>
                             <tr style="background:#e2e8f0; color:#000;">
@@ -583,6 +583,28 @@
                         font-weight: bold !important;
                         -webkit-print-color-adjust: exact !important;
                         print-color-adjust: exact !important;
+                    }
+                    .sarki-tables-row {
+                        display: flex !important;
+                        flex-direction: row !important;
+                        gap: 3.5px !important;
+                        align-items: stretch !important;
+                        direction: rtl !important;
+                        width: 100% !important;
+                        box-sizing: border-box !important;
+                    }
+                    .sarki-col-basic {
+                        flex: 46 1 0 !important;
+                        min-width: 0 !important;
+                        max-width: 48% !important;
+                        box-sizing: border-box !important;
+                    }
+                    .sarki-col-additions,
+                    .sarki-col-deductions {
+                        flex: 27 1 0 !important;
+                        min-width: 0 !important;
+                        max-width: 28% !important;
+                        box-sizing: border-box !important;
                     }
                 </style>
             </head>

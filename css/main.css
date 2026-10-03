@@ -2106,8 +2106,72 @@
                 border-left: 1px solid var(--border) !important;
             }
 
-            table {
+            /* تطبيق الحد الأدنى للعرض للتمرير الأفقي فقط على جداول البيانات العادية داخل حاويات التمرير */
+            .emp-table-container > table,
+            .table-wrap > table:not(#single-sarki-log-table):not(#emp-sarki-log-table),
+            #employees-table,
+            #daily-attendance-table,
+            #adj-months-summary-table,
+            #salary-adjustments-table,
+            #payroll-summary-table,
+            #dept-summary-table,
+            #delivery-table,
+            #emp-ledger-table,
+            #users-table {
                 min-width: 540px;
+            }
+
+            /* استثناء صريح وشامل لكافة جداول السراكي وشيتات A4 لضمان عدم تمددها أو خروجها عن الكارت */
+            #sarki-sheet-wrapper table,
+            #emp-sarki-sheet-wrapper table,
+            .bulk-payslip-card table,
+            .bulk-page-section table,
+            .a4-scalable-viewport table,
+            .pdf-export-container table,
+            .modal-content table,
+            #single-sarki-log-table,
+            #emp-sarki-log-table {
+                min-width: 0 !important;
+                max-width: 100% !important;
+                width: 100% !important;
+                table-layout: auto !important;
+            }
+
+            #sarki-sheet-wrapper .sarki-tables-row,
+            #emp-sarki-sheet-wrapper .sarki-tables-row,
+            .bulk-payslip-card .sarki-tables-row {
+                display: flex !important;
+                flex-direction: row !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            #sarki-sheet-wrapper .sarki-col-basic,
+            #emp-sarki-sheet-wrapper .sarki-col-basic,
+            .bulk-payslip-card .sarki-col-basic {
+                flex: 46 1 0 !important;
+                min-width: 0 !important;
+                max-width: 48% !important;
+                box-sizing: border-box !important;
+            }
+
+            #sarki-sheet-wrapper .sarki-col-additions,
+            #emp-sarki-sheet-wrapper .sarki-col-additions,
+            .bulk-payslip-card .sarki-col-additions {
+                flex: 27 1 0 !important;
+                min-width: 0 !important;
+                max-width: 28% !important;
+                box-sizing: border-box !important;
+            }
+
+            #sarki-sheet-wrapper .sarki-col-deductions,
+            #emp-sarki-sheet-wrapper .sarki-col-deductions,
+            .bulk-payslip-card .sarki-col-deductions {
+                flex: 27 1 0 !important;
+                min-width: 0 !important;
+                max-width: 28% !important;
+                box-sizing: border-box !important;
             }
 
             /* الأزرار والحقول على شاشة الموبايل (ارتفاع لا يقل عن 44px وخط 16px لمنع zoom المتصفح) */

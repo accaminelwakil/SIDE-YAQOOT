@@ -26,7 +26,33 @@
 
                 // ضبط العرض المناسب لمقاس ورقة A4 لضمان احتواء كافة الأعمدة بدون اقتصاص
                 const contentWidth = (orientation === 'landscape') ? '1060px' : '760px';
-                const containerHtml = `<div class="pdf-export-container" style="width:${contentWidth}; min-height:100%; background:#ffffff; color:#000000; direction:rtl; font-family:Tahoma,'Segoe UI',Arial,sans-serif; box-sizing:border-box; padding:8px;">${styleHtml}${bodyHtml}</div>`;
+                const pdfResetStyles = `
+                    <style>
+                        .pdf-export-container table {
+                            min-width: 0 !important;
+                            max-width: 100% !important;
+                            width: 100% !important;
+                            table-layout: auto !important;
+                        }
+                        .pdf-export-container .sarki-tables-row {
+                            display: flex !important;
+                            flex-direction: row !important;
+                            width: 100% !important;
+                        }
+                        .pdf-export-container .sarki-col-basic {
+                            flex: 46 1 0 !important;
+                            min-width: 0 !important;
+                            max-width: 48% !important;
+                        }
+                        .pdf-export-container .sarki-col-additions,
+                        .pdf-export-container .sarki-col-deductions {
+                            flex: 27 1 0 !important;
+                            min-width: 0 !important;
+                            max-width: 28% !important;
+                        }
+                    </style>
+                `;
+                const containerHtml = `<div class="pdf-export-container" style="width:${contentWidth}; min-height:100%; background:#ffffff; color:#000000; direction:rtl; font-family:Tahoma,'Segoe UI',Arial,sans-serif; box-sizing:border-box; padding:8px;">${pdfResetStyles}${styleHtml}${bodyHtml}</div>`;
 
                 const opt = {
                     margin: [5, 5, 5, 5],
