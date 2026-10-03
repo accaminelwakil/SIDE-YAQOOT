@@ -184,9 +184,9 @@
                     </div>
                     <span id="sidebar-user-role-badge" class="role-badge role-admin">مدير النظام</span>
                 </div>
-                <div style="display:flex; gap:6px; margin-top:2px;">
-                    <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 8px; flex:1; justify-content:center;" onclick="lockScreenModal()" title="قفل الشاشة برمز سري">🔒 قفل</button>
-                    <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 8px; flex:1; justify-content:center;" onclick="openSwitchUserModal()" title="تبديل المستخدم الحالي">🔄 تبديل</button>
+                <div style="display:flex; gap:6px; margin-top:4px;">
+                    <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 6px; flex:1; justify-content:center; color:#dc2626; border-color:#fca5a5;" onclick="logoutAndLockSystem()" title="تسجيل الخروج وقفل المنظومة">🚪 خروج وقفل</button>
+                    <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 6px; flex:1; justify-content:center;" onclick="openSwitchUserModal()" title="تبديل المستخدم الحالي">🔄 تبديل</button>
                 </div>
             </div>
             
@@ -1860,29 +1860,43 @@
                 </div>
             </div>
 
+            <!-- شريط تنبيه وضع التعديل (يظهر عند تعديل مستخدم موجود) -->
+            <div id="user-edit-mode-banner" style="display:none; background:#eff6ff; border:1.5px solid #3b82f6; border-radius:12px; padding:12px 18px; margin-bottom:16px; align-items:center; justify-content:space-between; gap:12px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:22px;">✏️</span>
+                    <div>
+                        <strong style="color:#1d4ed8; font-size:13.5px;" id="user-edit-banner-title">جاري تعديل صلاحيات المستخدم: admin</strong>
+                        <p style="margin:2px 0 0; font-size:11.5px; color:#3b82f6;">قم بتعديل الصلاحيات المحددة بالأسفل ثم اضغط على حفظ التعديلات.</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-secondary" style="font-size:11.5px; padding:5px 12px; background:#fff;" onclick="cancelEditUser()">❌ إلغاء التعديل والعودة</button>
+            </div>
+
             <!-- نموذج إضافة أو تعديل مستخدم -->
             <div class="panel" style="margin-bottom:18px;">
                 <div class="panel-title">
-                    <span>➕ إضافة مستخدم جديد للنظام</span>
+                    <span id="user-form-panel-title">➕ إضافة مستخدم جديد للنظام</span>
                     <span style="font-size:12px; color:var(--text-muted);">كلمات المرور والـ PIN مخزنة محلياً بأمان</span>
                 </div>
                 <form id="user-create-form" onsubmit="handleCreateUser(event)">
+                    <input type="hidden" id="editing-user-id" value="">
                     <div class="form-grid">
                         <div class="field">
                             <label>اسم المستخدم (لتسجيل الدخول) *</label>
-                            <input type="text" id="new-user-username" placeholder="مثال: ahmed_admin" required>
+                            <input type="text" id="new-user-username" placeholder="مثال: ahmed_admin" required autocomplete="off">
                         </div>
                         <div class="field">
                             <label>الاسم الظاهر بالمنظومة *</label>
                             <input type="text" id="new-user-fullname" placeholder="مثال: أ. أحمد عبد العزيز" required>
                         </div>
                         <div class="field">
-                            <label>الدور ومستوى الصلاحية *</label>
+                            <label>الدور المقترح (Preset) *</label>
                             <select id="new-user-role" required onchange="onNewUserRoleChanged()">
                                 <option value="admin">مدير النظام (Admin) - صلاحية كاملة على كل شيء</option>
                                 <option value="accountant">مسؤول الحسابات (Accountant) - السراكي والتسويات والرواتب</option>
                                 <option value="supervisor">مشرف الحضور (Supervisor) - تسجيل الحضور واليومية فقط</option>
                                 <option value="employee">موظف (Employee) - سركي الموظف الخاص به فقط</option>
+                                <option value="custom">مخصص (Custom) - تحديد يدوي للشاشات</option>
                             </select>
                         </div>
                         <div class="field" id="new-user-employee-wrapper" style="display:none;">
@@ -1892,12 +1906,44 @@
                             </select>
                         </div>
                         <div class="field">
-                            <label>كلمة المرور / الرمز السري (PIN) *</label>
+                            <label id="lbl-user-password">كلمة المرور / الرمز السري (PIN) *</label>
                             <input type="password" id="new-user-password" placeholder="أرقام أو حروف سرية" required>
                         </div>
                     </div>
-                    <div class="actions" style="margin-top:14px;">
-                        <button type="submit" class="btn-primary" style="flex:1;">💾 حفظ وإضافة المستخدم</button>
+
+                    <!-- قسم تحديد صلاحيات الشاشات -->
+                    <div class="user-permissions-section" style="margin-top:18px; padding-top:16px; border-top:1.5px dashed var(--border);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+                            <div>
+                                <label style="font-weight:800; font-size:13.5px; color:var(--text-main); display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:17px;">🛡️</span>
+                                    <span>صلاحيات الشاشات المسموح بها لهذا المستخدم:</span>
+                                    <span id="perm-selected-counter" class="badge badge-dept" style="font-size:11px;">0 مسموح</span>
+                                </label>
+                                <p style="font-size:11px; color:var(--text-muted); margin:3px 0 0 0;">قم بتحديد الشاشات التي يحق لهذا المستخدم فتحها واستخدامها، وسيتم إخفاء باقي الشاشات عنه تماماً.</p>
+                            </div>
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 9px;" onclick="setAllScreenPermissions(true)">✔ تحديد الكل</button>
+                                <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 9px;" onclick="setAllScreenPermissions(false)">✖ إلغاء الكل</button>
+                                <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 9px; color:#2563eb;" onclick="applyRolePresetPermissions('accountant')">📋 نموذج حسابات</button>
+                                <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 9px; color:#059669;" onclick="applyRolePresetPermissions('supervisor')">⏱️ نموذج مشرف</button>
+                                <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 9px; color:#7c3aed;" onclick="applyRolePresetPermissions('employee')">👤 نموذج موظف</button>
+                            </div>
+                        </div>
+
+                        <!-- حاوية كروت الشاشات والصلاحيات -->
+                        <div id="screen-permissions-grid" class="permissions-grid">
+                            <!-- سيتم حقن الشاشات ديناميكياً بواسطة دالة renderPermissionsCheckboxes -->
+                        </div>
+                    </div>
+
+                    <div class="actions" style="margin-top:18px; display:flex; gap:10px;">
+                        <button type="submit" id="btn-save-user-submit" class="btn-primary" style="flex:1; justify-content:center; padding:12px; font-size:13.5px;">
+                            💾 حفظ وإضافة المستخدم
+                        </button>
+                        <button type="button" id="btn-cancel-edit-user" class="btn-secondary" style="display:none; padding:12px 20px;" onclick="cancelEditUser()">
+                            إلغاء
+                        </button>
                     </div>
                 </form>
             </div>
@@ -1905,7 +1951,7 @@
             <!-- جدول المستخدمين المسجلين في المنظومة -->
             <div class="panel">
                 <div class="panel-title">
-                    <span>👥 قائمة المستخدمين المصرح لهم بالدخول</span>
+                    <span>👥 قائمة المستخدمين وصلاحيات الشاشات</span>
                     <span style="font-size:12px; color:var(--accent);">المستخدم النشط حالياً معلم بإشارة خضراء</span>
                 </div>
                 <div class="table-wrap">
@@ -1915,10 +1961,11 @@
                                 <th>#</th>
                                 <th>اسم المستخدم</th>
                                 <th>الاسم الظاهر</th>
-                                <th>مستوى الصلاحية</th>
-                                <th>كلمة المرور / الرمز</th>
+                                <th>الدور المقترح</th>
+                                <th>صلاحيات الشاشات المسموحة</th>
+                                <th>كلمة المرور</th>
                                 <th>تاريخ الإنشاء</th>
-                                <th>الحالة الحالية</th>
+                                <th>الحالة</th>
                                 <th>إجراءات</th>
                             </tr>
                         </thead>
@@ -2097,30 +2144,52 @@
 <!-- ==================== نوافذ النظام المنبثقة (MODALS) ==================== -->
 
 <!-- نافذة قفل الشاشة (Lock Screen Modal) -->
+<!-- ==================== نافذة تسجيل الدخول وقفل المنظومة ==================== -->
 <div id="modal-lock-screen" class="lock-screen-overlay">
     <div class="lock-card">
-        <div style="width:60px; height:60px; background:linear-gradient(135deg, var(--accent), #2563eb); border-radius:16px; margin:0 auto 16px; display:flex; align-items:center; justify-content:center; font-size:30px;">
-            🏥
+        <div style="width:68px; height:68px; background:#fff; border:1.5px solid var(--border); border-radius:18px; margin:0 auto 14px; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 20px rgba(0,0,0,0.06); padding:4px;">
+            <img src="assets/sidi-yaqout-logo-transparent.png" alt="عيادات سيدي ياقوت" style="max-height:48px; max-width:58px; object-fit:contain;" />
         </div>
-        <h2 style="font-size:20px; font-weight:800; color:var(--text-main); margin-bottom:4px;">عيادات سيدى ياقوت التخصصية</h2>
-        <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">المنظومة مقفلة بأمان | يرجى إدخال بيانات الدخول للمتابعة</p>
+        <h2 style="font-size:18px; font-weight:800; color:var(--text-main); margin-bottom:4px;">منظومة عيادات سيدى ياقوت التخصصية</h2>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:18px;">يرجى إدخال اسم المستخدم وكلمة المرور لتسجيل الدخول ومتابعة العمل</p>
 
         <form id="lock-screen-form" onsubmit="handleUnlockSystem(event)">
             <div class="field" style="margin-bottom:14px; text-align:right;">
-                <label>اسم المستخدم</label>
-                <select id="lock-user-select" style="width:100%;" onchange="onLockUserSelectChanged()">
-                    <!-- dynamic users -->
-                </select>
+                <label style="font-weight:700; font-size:12.5px; color:var(--text-main); margin-bottom:6px; display:block;">👤 اسم المستخدم</label>
+                <div style="position:relative;">
+                    <input type="text" id="lock-username-input" placeholder="أدخل اسم المستخدم (مثال: admin)..." required autocomplete="username"
+                           style="width:100%; padding:11px 38px 11px 12px; font-size:14px; border:1.5px solid var(--border); border-radius:10px; background:#fff; text-align:right; font-family:inherit;">
+                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:15px; color:var(--text-muted); pointer-events:none;">👤</span>
+                </div>
             </div>
-            <div class="field" style="margin-bottom:20px; text-align:right;">
-                <label>كلمة المرور أو رمز الـ PIN</label>
-                <input type="password" id="lock-password-input" placeholder="أدخل كلمة المرور..." required style="width:100%; text-align:center; font-size:16px; letter-spacing:2px;">
+            
+            <div class="field" style="margin-bottom:16px; text-align:right;">
+                <label style="font-weight:700; font-size:12.5px; color:var(--text-main); margin-bottom:6px; display:block;">🔑 كلمة المرور / رمز الـ PIN</label>
+                <div style="position:relative;">
+                    <input type="password" id="lock-password-input" placeholder="أدخل كلمة المرور..." required autocomplete="current-password"
+                           style="width:100%; padding:11px 38px 11px 40px; font-size:15px; border:1.5px solid var(--border); border-radius:10px; background:#fff; text-align:center; font-family:inherit; letter-spacing:2px;">
+                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:15px; color:var(--text-muted); pointer-events:none;">🔒</span>
+                    <button type="button" onclick="togglePasswordVisibility('lock-password-input', this)" 
+                            style="position:absolute; left:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; color:var(--text-muted); padding:4px;" title="إظهار / إخفاء كلمة المرور">👁️</button>
+                </div>
             </div>
-            <div id="lock-error-msg" style="color:#ef4444; font-size:12px; font-weight:bold; margin-bottom:12px; display:none;"></div>
-            <button type="submit" class="btn-primary" style="width:100%; justify-content:center; font-size:14px; padding:12px;">
-                🔓 فتح المنظومة ومتابعة العمل
+
+            <div id="lock-error-msg" style="color:#ef4444; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px 12px; font-size:12px; font-weight:bold; margin-bottom:14px; display:none; text-align:right;"></div>
+
+            <button type="submit" class="btn-primary" style="width:100%; justify-content:center; font-size:14px; padding:12px; border-radius:10px; font-weight:700;">
+                🔓 تسجيل الدخول وفتح المنظومة
             </button>
-            <button type="button" class="btn-secondary" style="font-size:11.5px; padding:7px 12px; width:100%; margin-top:10px; justify-content:center; color:var(--accent); border:1px dashed var(--accent);" onclick="openEmployeeSelfRegisterModal()">📝 موظف جديد؟ اضغط هنا لتسجيل حسابك</button>
+
+            <div style="margin-top:14px; padding-top:12px; border-top:1px dashed var(--border); font-size:11px; color:var(--text-muted); text-align:center;">
+                <span>💡 بيانات الدخول الافتراضية: </span>
+                <strong style="color:var(--text-main);">admin</strong>
+                <span> | كلمة المرور: </span>
+                <strong style="color:var(--text-main);">1234</strong>
+            </div>
+
+            <button type="button" class="btn-secondary" style="font-size:11.5px; padding:7px 12px; width:100%; margin-top:10px; justify-content:center; color:var(--accent); border:1px dashed var(--accent);" onclick="openEmployeeSelfRegisterModal()">
+                📝 موظف جديد؟ اضغط هنا لتسجيل حسابك
+            </button>
         </form>
     </div>
 </div>

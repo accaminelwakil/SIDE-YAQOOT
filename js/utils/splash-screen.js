@@ -69,6 +69,9 @@
             if (typeof renderWelcomeDashboard === 'function') {
                 renderWelcomeDashboard();
             }
+            if (typeof checkAuthAndRequireLogin === 'function') {
+                checkAuthAndRequireLogin();
+            }
         }, 650);
     }
 

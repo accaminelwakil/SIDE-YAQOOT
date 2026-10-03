@@ -90,23 +90,20 @@
     }
 
     function switchScreen(screenId, btnElement) {
-        // فحص الصلاحيات بحسب دور المستخدم النشط
-        if (currentUser && currentUser.role === 'employee') {
-            if (screenId !== 'screen-employee-sarki') {
-                alert('⚠️ عذراً! صلاحيات حسابك (موظف) مقتصرة فقط على الاطلاع على السركي الخاص بك.');
-                screenId = 'screen-employee-sarki';
-                btnElement = document.getElementById('nav-screen-employee-sarki');
-            }
-        } else if (currentUser && currentUser.role === 'supervisor') {
-            const allowedForSupervisor = ['screen-welcome', 'screen-attendance'];
-            if (!allowedForSupervisor.includes(screenId)) {
-                alert('⚠️ عذراً! صلاحيات حسابك (مشرف حضور) لا تسمح بالاطلاع على البيانات المالية أو الرواتب.');
-                screenId = 'screen-attendance';
-                btnElement = document.getElementById('nav-screen-attendance');
-            }
-        } else if (currentUser && currentUser.role === 'accountant') {
-            if (screenId === 'screen-users-roles') {
-                alert('⚠️ عذراً! إدارة المستخدمين والصلاحيات مقتصرة على مدير النظام (Admin).');
+        // التحقق من تسجيل الدخول والمصادقة
+        if (typeof isUserAuthenticated !== 'undefined' && !isUserAuthenticated) {
+            if (typeof lockScreenModal === 'function') lockScreenModal();
+            return;
+        }
+
+        // فحص صلاحية الوصول للشاشة المحددة للمستخدم الحالي
+        if (typeof currentUser !== 'undefined' && currentUser) {
+            const isAdmin = currentUser.role === 'admin';
+            const userPerms = Array.isArray(currentUser.permissions) ? currentUser.permissions : [];
+            const isAllowed = isAdmin || userPerms.includes(screenId);
+
+            if (!isAllowed) {
+                alert('⚠️ عذراً! ليس لديك صلاحية للوصول إلى هذه الشاشة.');
                 return;
             }
         }
