@@ -261,6 +261,56 @@
             balEl.style.color = runningBalance > 0 ? 'var(--danger)' : 'var(--success)';
         }
 
+        // رصيد وسجل الإجازات والأذونات للموظف
+        const leavesTbody = document.getElementById('emp-profile-leaves-tbody');
+        const leaveBadges = document.getElementById('prof-leave-stats-badges');
+        if (leavesTbody) {
+            const allLeavesDb = (typeof leavesPermissionsDb !== 'undefined') ? leavesPermissionsDb : JSON.parse(localStorage.getItem('erp_leaves_permissions_db') || '[]');
+            const empItems = allLeavesDb.filter(i => String(i.empId) === String(emp.id));
+
+            const quota = Number(emp.annualLeaveQuota) || 21;
+            const approvedLeaves = empItems.filter(i => i.itemType === 'leave' && i.status === 'approved');
+            const takenDays = approvedLeaves.reduce((sum, i) => sum + (Number(i.daysCount) || 1), 0);
+            const remaining = Math.max(0, quota - takenDays);
+            const approvedPerms = empItems.filter(i => i.itemType === 'permission' && i.status === 'approved');
+            const permHours = approvedPerms.reduce((sum, i) => sum + (Number(i.hoursCount) || 0), 0);
+
+            if (leaveBadges) {
+                leaveBadges.innerHTML = `
+                    <span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:bold;">رصيد الإجازات: ${quota} يوم</span>
+                    <span class="badge" style="background:#dcfce7; color:#15803d; font-weight:bold;">المستهلك: ${takenDays} يوم</span>
+                    <span class="badge" style="background:${remaining <= 3 ? '#fee2e2' : '#f0fdf4'}; color:${remaining <= 3 ? '#b91c1c' : '#166534'}; font-weight:bold;">المتبقي: ${remaining} يوم</span>
+                    <span class="badge" style="background:#fef3c7; color:#92400e; font-weight:bold;">أذونات معتمدة: ${permHours} ساعة</span>
+                `;
+            }
+
+            if (empItems.length === 0) {
+                leavesTbody.innerHTML = `<tr><td colspan="7" style="padding:16px; color:#64748b; text-align:center;">لا توجد طلبات إجازات أو أذونات مسجلة لهذا الموظف حتى الآن.</td></tr>`;
+            } else {
+                leavesTbody.innerHTML = empItems.map(item => {
+                    const isLeave = item.itemType === 'leave';
+                    const typeBadge = isLeave ? '<span class="badge" style="background:#eff6ff; color:#1d4ed8;">🏖️ إجازة</span>' : '<span class="badge" style="background:#fef3c7; color:#b45309;">⏱️ إذن</span>';
+                    const period = isLeave ? `${item.startDate || ''} إلى ${item.endDate || ''}` : `${item.startDate || ''} (${item.startTime || ''} - ${item.endTime || ''})`;
+                    const duration = isLeave ? `${item.daysCount || 1} يوم` : `${item.hoursCount || 1} ساعة`;
+                    let statusBadge = '<span class="badge" style="background:#fef3c7; color:#b45309;">⏳ قيد الاعتماد</span>';
+                    if (item.status === 'approved') statusBadge = `<span class="badge" style="background:#dcfce7; color:#15803d;">✅ معتمد من ${item.approvedBy || 'المدير'}</span>`;
+                    if (item.status === 'rejected') statusBadge = `<span class="badge" style="background:#fee2e2; color:#b91c1c;" title="${item.rejectionReason || ''}">❌ مرفوض: ${item.rejectionReason || 'اعتذار'}</span>`;
+
+                    return `
+                        <tr>
+                            <td>${typeBadge}</td>
+                            <td style="font-weight:bold;">${item.leaveTypeTitle || item.permTypeTitle || (isLeave ? 'إجازة' : 'إذن')}</td>
+                            <td style="font-family:Consolas, monospace;">${period}</td>
+                            <td style="font-weight:bold; color:var(--accent);">${duration}</td>
+                            <td>${item.reason || '-'}</td>
+                            <td>${statusBadge}</td>
+                            <td style="font-size:11px; color:#64748b;">${item.createdAt ? item.createdAt.split('T')[0] : '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
         container.style.display = 'block';
     }
 

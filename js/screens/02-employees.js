@@ -334,6 +334,12 @@
         const usernameInput = document.getElementById('new-emp-username');
         const passwordInput = document.getElementById('new-emp-password');
 
+        const managerSel = document.getElementById('new-emp-manager');
+        const managerId = managerSel && managerSel.value ? managerSel.value : '';
+        const managerName = (managerSel && managerSel.selectedIndex > 0) ? managerSel.options[managerSel.selectedIndex].text.split(' (')[0] : 'مدير النظام';
+        const isManager = document.getElementById('new-emp-is-manager') ? document.getElementById('new-emp-is-manager').checked : false;
+        const annualLeaveQuota = Number(document.getElementById('new-emp-annual-leave') ? document.getElementById('new-emp-annual-leave').value : 21) || 21;
+
         const assignedCode = getNextCodeForDept(job);
         const username = hasNoUser ? '' : (usernameInput && usernameInput.value.trim() ? usernameInput.value.trim().toLowerCase() : `emp_${assignedCode}`);
         const pin = hasNoUser ? '' : (passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : '1234');
@@ -354,7 +360,11 @@
             increaseAmount: 0,
             status: 'نشط',
             hasNoUser: hasNoUser,
-            username: username
+            username: username,
+            managerId: managerId,
+            managerName: managerName,
+            isManager: isManager,
+            annualLeaveQuota: annualLeaveQuota
         };
 
         // إنشاء حساب المستخدم في قاعدة بيانات المستخدمين إذا لم يكن معلماً بدون يوزر
@@ -443,6 +453,9 @@
 
 
         tbody.innerHTML = '';
+        if (typeof populateManagerDropdowns === 'function') {
+            populateManagerDropdowns();
+        }
 
         const filtered = employees.filter(e => {
 
@@ -489,6 +502,13 @@
                             : `<span class="badge badge-status-active" style="font-family:Consolas, monospace;">👤 ${e.username || ('emp_' + e.id)}</span>`
                         }
                     </td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:4px; justify-content:center; flex-wrap:wrap;">
+                            ${e.isManager ? '<span class="badge" style="background:#fef3c7; color:#92400e; font-weight:bold; font-size:10px;">🎖️ مدير</span>' : ''}
+                            <span style="font-size:11.5px; color:#475569;">${e.managerName || 'مدير النظام'}</span>
+                        </div>
+                    </td>
+                    <td><span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">${e.annualLeaveQuota || 21} يوم</span></td>
                     <td>${e.offDay || '-'}</td>
 
                     <td style="color:var(--accent); font-weight:bold;">${Number(e.basicSalary).toLocaleString()} ج.م</td>
@@ -549,11 +569,36 @@
 
 
 
+    function populateManagerDropdowns() {
+        const selects = [
+            document.getElementById('new-emp-manager'),
+            document.getElementById('edit-emp-manager')
+        ];
+        const allEmps = Array.isArray(employees) ? employees : [];
+        const managers = allEmps.filter(e => e.status !== 'انتهت خدمته' && (e.isManager === true || e.job === 'إدارة'));
+
+        selects.forEach(sel => {
+            if (!sel) return;
+            const cur = sel.value;
+            sel.innerHTML = '<option value="">-- بدون مدير مباشر (مدير النظام) --</option>';
+            managers.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = `${m.name} (${m.job || 'عام'}) - #${m.id}`;
+                sel.appendChild(opt);
+            });
+            if (cur) sel.value = cur;
+        });
+    }
+    window.populateManagerDropdowns = populateManagerDropdowns;
+
     function openEditEmployeeModal(empId) {
 
         const emp = employees.find(e => e.id === empId);
 
         if (!emp) return;
+
+        populateManagerDropdowns();
 
         document.getElementById('edit-emp-id').value = emp.id;
 
@@ -567,6 +612,13 @@
 
         document.getElementById('edit-emp-off').value = emp.offDay || 'الجمعة (Friday)';
         document.getElementById('edit-emp-status').value = emp.status || 'نشط';
+
+        const editMgr = document.getElementById('edit-emp-manager');
+        if (editMgr) editMgr.value = emp.managerId || '';
+        const editIsMgr = document.getElementById('edit-emp-is-manager');
+        if (editIsMgr) editIsMgr.checked = emp.isManager === true;
+        const editQuota = document.getElementById('edit-emp-annual-leave');
+        if (editQuota) editQuota.value = emp.annualLeaveQuota || 21;
 
         // ضبط بيانات حساب المستخدم
         const noUserChk = document.getElementById('edit-emp-no-user');
@@ -627,6 +679,12 @@
         emp.offDay = document.getElementById('edit-emp-off').value;
 
         emp.status = document.getElementById('edit-emp-status').value;
+
+        const editMgr = document.getElementById('edit-emp-manager');
+        emp.managerId = editMgr && editMgr.value ? editMgr.value : '';
+        emp.managerName = (editMgr && editMgr.selectedIndex > 0) ? editMgr.options[editMgr.selectedIndex].text.split(' (')[0] : 'مدير النظام';
+        emp.isManager = document.getElementById('edit-emp-is-manager') ? document.getElementById('edit-emp-is-manager').checked : false;
+        emp.annualLeaveQuota = Number(document.getElementById('edit-emp-annual-leave') ? document.getElementById('edit-emp-annual-leave').value : 21) || 21;
 
         // معالجة حساب المستخدم عند التعديل
         const noUserChk = document.getElementById('edit-emp-no-user');

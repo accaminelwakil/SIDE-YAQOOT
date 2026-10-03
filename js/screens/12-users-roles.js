@@ -117,6 +117,30 @@
             category: 'الموظفين',
             catClass: 'cat-employee',
             desc: 'شاشة مخصصة للموظف للاطلاع على سركي حسابه الفردي فقط'
+        },
+        {
+            id: 'screen-leaves-permissions',
+            name: 'الإجازات والأذونات والاعتماد',
+            icon: '🏖️',
+            category: 'الموظفين',
+            catClass: 'cat-employee',
+            desc: 'إدارة طلبات الإجازات والأذونات ودورة اعتماد المدير المباشر'
+        },
+        {
+            id: 'screen-punches-payroll',
+            name: 'بصمة الموظفين والرواتب',
+            icon: '📍',
+            category: 'المالية',
+            catClass: 'cat-financial',
+            desc: 'مراجعة بصمات الحضور واحتساب الرواتب بناءً على البصمة الذكية'
+        },
+        {
+            id: 'screen-attendance-comparison',
+            name: 'مقارنة البصمة واليدوي',
+            icon: '⚖️',
+            category: 'التقارير',
+            catClass: 'cat-reports',
+            desc: 'تقرير مطابقة وتدقيق ساعات الحضور بالبصمة مع الإدخال اليدوي'
         }
     ];
 
@@ -141,7 +165,8 @@
             permissions: [
                 'screen-welcome', 'screen-employees', 'screen-attendance', 'screen-salary-adjustments',
                 'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery',
-                'screen-emp-general-report', 'screen-totals-report', 'screen-backup-restore', 'screen-firebase-settings'
+                'screen-emp-general-report', 'screen-totals-report', 'screen-backup-restore', 'screen-firebase-settings',
+                'screen-leaves-permissions', 'screen-punches-payroll', 'screen-attendance-comparison'
             ],
             screenAccess: {
                 'screen-welcome': 'view',
@@ -155,7 +180,10 @@
                 'screen-emp-general-report': 'view',
                 'screen-totals-report': 'view',
                 'screen-backup-restore': 'edit',
-                'screen-firebase-settings': 'edit'
+                'screen-firebase-settings': 'edit',
+                'screen-leaves-permissions': 'edit',
+                'screen-punches-payroll': 'edit',
+                'screen-attendance-comparison': 'view'
             },
             createdAt: '2026-01-01'
         },
@@ -397,6 +425,9 @@
         applyRolePermissions();
         renderUsersTable();
         showToast(`مرحباً بك يا ${currentUser.fullName}! تم فتح المنظومة بنجاح. 🎉`, 'success');
+        if (typeof checkUserNotificationsOnLogin === 'function') {
+            checkUserNotificationsOnLogin(currentUser);
+        }
     }
 
     function togglePasswordVisibility(inputId, btnEl) {

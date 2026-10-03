@@ -1,4 +1,4 @@
-﻿    // ==================== النسخ الاحتياطي واستعادة البيانات (Backup & Restore) ====================
+    // ==================== النسخ الاحتياطي واستعادة البيانات (Backup & Restore) ====================
     let pendingBackupDataToRestore = null;
 
     function renderBackupDashboard() {
@@ -28,7 +28,10 @@
                 salaryAdjustmentsDb: salaryAdjustmentsDb,
                 savedPayrollSummaryCycles: savedPayrollSummaryCycles,
                 officialHolidaysDb: officialHolidaysDb,
-                usersDb: usersDb
+                usersDb: usersDb,
+                leavesPermissionsDb: (typeof leavesPermissionsDb !== 'undefined') ? leavesPermissionsDb : JSON.parse(localStorage.getItem('erp_leaves_permissions_db') || '[]'),
+                notificationsDb: (typeof notificationsDb !== 'undefined') ? notificationsDb : JSON.parse(localStorage.getItem('erp_notifications_db') || '[]'),
+                smartPunchesDb: JSON.parse(localStorage.getItem('erp_smart_punches_db') || '[]')
             }
         };
 
@@ -134,6 +137,20 @@
         if (pendingBackupDataToRestore.usersDb) {
             usersDb = pendingBackupDataToRestore.usersDb;
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+        }
+
+        if (pendingBackupDataToRestore.leavesPermissionsDb) {
+            if (typeof leavesPermissionsDb !== 'undefined') leavesPermissionsDb = pendingBackupDataToRestore.leavesPermissionsDb;
+            localStorage.setItem('erp_leaves_permissions_db', JSON.stringify(pendingBackupDataToRestore.leavesPermissionsDb));
+        }
+
+        if (pendingBackupDataToRestore.notificationsDb) {
+            if (typeof notificationsDb !== 'undefined') notificationsDb = pendingBackupDataToRestore.notificationsDb;
+            localStorage.setItem('erp_notifications_db', JSON.stringify(pendingBackupDataToRestore.notificationsDb));
+        }
+
+        if (pendingBackupDataToRestore.smartPunchesDb) {
+            localStorage.setItem('erp_smart_punches_db', JSON.stringify(pendingBackupDataToRestore.smartPunchesDb));
         }
 
         updateAllDeptDropdownsAndFilters();

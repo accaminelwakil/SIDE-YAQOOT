@@ -154,6 +154,15 @@
         if (screenId === 'screen-backup-restore') renderBackupDashboard();
         if (screenId === 'screen-users-roles') renderUsersTable();
         if (screenId === 'screen-firebase-settings') renderFirebaseSettingsScreen();
+        if (screenId === 'screen-leaves-permissions') {
+            if (typeof renderLeavesPermissionsScreen === 'function') renderLeavesPermissionsScreen();
+        }
+        if (screenId === 'screen-punches-payroll') {
+            if (typeof renderPunchesPayrollScreen === 'function') renderPunchesPayrollScreen();
+        }
+        if (screenId === 'screen-attendance-comparison') {
+            if (typeof renderAttendanceComparisonScreen === 'function') renderAttendanceComparisonScreen();
+        }
         if (typeof refreshAllSearchableSelects === 'function') refreshAllSearchableSelects();
 
         // إغلاق قائمة الموبايل تلقائياً عند اختيار أي شاشة
