@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.railway.up.side_yaqoot_production.twa",
+    "sha256_cert_fingerprints": ["D3:23:6C:B7:C6:7F:E9:FD:D1:99:A7:FC:14:5C:44:16:78:83:24:CD:4E:72:9C:EB:8C:A7:7D:41:2D:E8:4F:06"]
+  }
+}]

@@ -14,6 +14,17 @@ def manifest():
     return resp
 
 
+# ── Digital Asset Links (TWA / Android) ─────────────────────────────
+@app.route("/.well-known/assetlinks.json")
+def assetlinks():
+    resp = send_from_directory(
+        os.path.join(BASE_DIR, "static", ".well-known"),
+        "assetlinks.json"
+    )
+    resp.headers["Content-Type"] = "application/json"
+    return resp
+
+
 # ── Service Worker: يجب أن يكون في الجذر تماماً ──────────────────────
 @app.route("/sw.js")
 def service_worker():
