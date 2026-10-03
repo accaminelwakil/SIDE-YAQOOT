@@ -1994,3 +1994,220 @@
                 overflow-y: auto !important;
             }
         }
+
+        /* =========================================================================
+           Geofencing (GPS) Smart Attendance & Mobile Verification Styles
+           ========================================================================= */
+
+        .btn-smart-punch {
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+            color: #ffffff !important;
+            border: none !important;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35) !important;
+            font-weight: 800 !important;
+            margin-bottom: 8px !important;
+            border-radius: 8px !important;
+            transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+        }
+
+        .btn-smart-punch:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45) !important;
+        }
+
+        .punch-clock-display {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            color: #ffffff;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.15);
+            margin-bottom: 16px;
+        }
+
+        .punch-clock-time {
+            font-size: 34px;
+            font-weight: 900;
+            font-family: 'Consolas', 'Courier New', monospace;
+            color: #38bdf8;
+            letter-spacing: 2px;
+            text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+        }
+
+        .punch-clock-date {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 4px;
+            font-weight: 600;
+        }
+
+        .punch-user-strip {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            font-size: 13px;
+        }
+
+        .punch-type-toggle {
+            display: flex;
+            background: #e2e8f0;
+            border-radius: 10px;
+            padding: 4px;
+            gap: 4px;
+            margin-bottom: 16px;
+        }
+
+        .punch-type-toggle label {
+            flex: 1;
+            text-align: center;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            color: #64748b;
+        }
+
+        .punch-type-toggle input[type="radio"] {
+            display: none;
+        }
+
+        .punch-type-toggle input[type="radio"]:checked + label.toggle-label-in {
+            background: #10b981;
+            color: #ffffff;
+            box-shadow: 0 2px 10px rgba(16, 185, 129, 0.35);
+        }
+
+        .punch-type-toggle input[type="radio"]:checked + label.toggle-label-out {
+            background: #ef4444;
+            color: #ffffff;
+            box-shadow: 0 2px 10px rgba(239, 68, 68, 0.35);
+        }
+
+        .punch-radar-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 18px 10px;
+            position: relative;
+        }
+
+        .punch-radar-circle {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.03) 70%);
+            border: 2px solid rgba(16, 185, 129, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            margin-bottom: 12px;
+        }
+
+        .punch-radar-circle::before {
+            content: '';
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 1.5px dashed rgba(16, 185, 129, 0.5);
+        }
+
+        .punch-radar-circle.radar-animating {
+            animation: radarPulseAnim 2s infinite ease-out;
+        }
+
+        @keyframes radarPulseAnim {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+            50% { transform: scale(1.05); box-shadow: 0 0 0 16px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .punch-radar-icon {
+            font-size: 38px;
+            z-index: 2;
+        }
+
+        .punch-status-box {
+            border-radius: 10px;
+            padding: 12px 16px;
+            font-size: 13px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 16px;
+            width: 100%;
+            box-sizing: border-box;
+            line-height: 1.5;
+            transition: all 0.3s ease;
+        }
+
+        .punch-status-box.status-locating {
+            background: #eff6ff;
+            border: 1.5px solid #93c5fd;
+            color: #1e40af;
+        }
+
+        .punch-status-box.status-inside {
+            background: #ecfdf5;
+            border: 1.5px solid #6ee7b7;
+            color: #065f46;
+        }
+
+        .punch-status-box.status-outside {
+            background: #fef2f2;
+            border: 1.5px solid #fca5a5;
+            color: #991b1b;
+        }
+
+        .punch-status-box.status-error {
+            background: #fffbeb;
+            border: 1.5px solid #fde68a;
+            color: #92400e;
+        }
+
+        .btn-punch-main {
+            width: 100%;
+            padding: 14px 20px;
+            border-radius: 10px;
+            border: none;
+            font-size: 15px;
+            font-weight: 900;
+            color: #ffffff;
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .btn-punch-main:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 22px rgba(16, 185, 129, 0.5);
+        }
+
+        .btn-punch-disabled,
+        .btn-punch-main:disabled {
+            background: #cbd5e1 !important;
+            color: #64748b !important;
+            box-shadow: none !important;
+            cursor: not-allowed !important;
+            transform: none !important;
+        }
+
