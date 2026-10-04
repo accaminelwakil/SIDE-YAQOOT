@@ -18,23 +18,30 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
             // نغمة جرس خفيفة مبهجة
             osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
             osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
-            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.setValueAtTime(0.14, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
             osc.connect(gain);
             gain.connect(ctx.destination);
             osc.start();
             osc.stop(ctx.currentTime + 0.45);
         } catch (e) {
-            // تجاهل أي تقييد للصوت التلقائي
+            // تجاهل أي تقييد للصوت التلقائي في المتصفح قبل تفاعل المستخدم
         }
     }
 
-    // ── 2. حفظ الإشعارات في التخزين المحلي ──
+    // ── 2. حفظ الإشعارات في التخزين المحلي والمزامنة الفورية مع السحابة والسيرفر ──
     function saveNotifications() {
         localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
+        
+        // 1. مزامنة فورية عبر Firebase السحابي (بدون تأخير)
         if (typeof pushSingleCollectionToFirebase === 'function') {
-            pushSingleCollectionToFirebase('notifications', notificationsDb);
+            pushSingleCollectionToFirebase('notifications', notificationsDb, true);
         }
+
+        // 2. مزامنة فورية مع سيرفر العيادة المحلي (Python Server)
+        syncNotificationsWithLocalServer();
+
+        // 3. تحديث شارة الجرس
         updateNotificationBellUI();
     }
 
@@ -66,37 +73,46 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
 
         // إشعار Toast منبثق فوري
         if (typeof showToast === 'function') {
-            showToast(`🔔 ${title}: ${message}`, type.includes('rejected') ? 'error' : (type.includes('approved') ? 'success' : 'info'));
+            const toastType = (type && type.includes('rejected')) ? 'error' : ((type && type.includes('approved')) ? 'success' : 'info');
+            showToast(`🔔 ${title}: ${message}`, toastType);
         }
 
         return notif;
     }
 
-    // ── 4. الحصول على الإشعارات الموجهة للمستخدم الحالي ──
-    function getCurrentUserNotifications() {
-        const user = window.currentUser;
-        if (!user) return [];
+    // ── 4. فحص ما إذا كان الإشعار موجه للمستخدم الحالي ──
+    function isNotificationForCurrentUser(n, user) {
+        if (!n) return false;
+        if (!user) return true;
 
         const isAdmin = (user.role === 'admin' || user.username === 'admin');
         const userEmpId = user.empId ? String(user.empId) : null;
         const username = user.username ? user.username.toLowerCase() : '';
 
-        return notificationsDb.filter(n => {
-            // مدير النظام يرى كافة الإشعارات العامة وإشعارات المديرين
-            if (isAdmin) return true;
-            // موجه لاسم المستخدم مباشرة
-            if (n.targetUsername && n.targetUsername.toLowerCase() === username) return true;
-            // موجه لكود الموظف
-            if (n.targetEmpId && userEmpId && String(n.targetEmpId) === userEmpId) return true;
-            // موجه لدور معين
-            if (n.targetRole && (n.targetRole === user.role || (n.targetRole === 'manager' && user.isManager))) return true;
-            // إشعار عام بدون تحديد
-            if (!n.targetUsername && !n.targetRole && !n.targetEmpId) return true;
-            return false;
-        });
+        // مدير النظام يرى كافة الإشعارات
+        if (isAdmin) return true;
+        // موجه لاسم المستخدم مباشرة
+        if (n.targetUsername && n.targetUsername.toLowerCase() === username) return true;
+        // موجه لكود الموظف
+        if (n.targetEmpId && userEmpId && String(n.targetEmpId) === userEmpId) return true;
+        // موجه لدور معين
+        if (n.targetRole && (n.targetRole === user.role || (n.targetRole === 'manager' && user.isManager))) return true;
+        // إشعار عام بدون تحديد
+        if (!n.targetUsername && !n.targetRole && !n.targetEmpId) return true;
+        return false;
     }
 
-    // ── 5. تحديث أيقونة جرس الإشعارات والعداد (Desktop + Mobile) ──
+    // ── 5. الحصول على الإشعارات الموجهة للمستخدم الحالي ──
+    function getCurrentUserNotifications() {
+        const user = window.currentUser;
+        if (!user) {
+            // في حالة عدم اكتمال تحميل المستخدم، عرض الإشعارات غير الموجهة لمستخدم محدد
+            return notificationsDb.filter(n => !n.targetUsername && !n.targetEmpId);
+        }
+        return notificationsDb.filter(n => isNotificationForCurrentUser(n, user));
+    }
+
+    // ── 6. تحديث أيقونة جرس الإشعارات والعداد (Desktop + Mobile) ──
     function updateNotificationBellUI() {
         const userNotifs = getCurrentUserNotifications();
         const unreadCount = userNotifs.filter(n => !n.isRead).length;
@@ -123,26 +139,63 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
         }
     }
 
-    // ── 6. فتح / إغلاق القائمة المنسدلة للإشعارات ──
-    function toggleNotificationsDropdown() {
+    // ── 7. فتح / إغلاق القائمة المنسدلة للإشعارات (متوافق تماماً مع الموبايل والديسكتوب) ──
+    function toggleNotificationsDropdown(e) {
+        if (e && typeof e.stopPropagation === 'function') {
+            e.stopPropagation();
+        }
         const dropdown = document.getElementById('notif-dropdown-panel');
+        const backdrop = document.getElementById('notif-backdrop');
         if (!dropdown) return;
 
         const isCurrentlyOpen = dropdown.style.display === 'block';
         if (isCurrentlyOpen) {
-            dropdown.style.display = 'none';
+            closeNotificationsDropdown();
+            return;
+        }
+
+        renderNotificationsList();
+        dropdown.style.display = 'block';
+
+        const isMobile = window.innerWidth <= 991;
+        if (backdrop) {
+            backdrop.style.display = isMobile ? 'block' : 'none';
+        }
+
+        if (isMobile) {
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = '60px';
+            dropdown.style.left = '10px';
+            dropdown.style.right = '10px';
+            dropdown.style.width = 'calc(100% - 20px)';
+            dropdown.style.maxWidth = '440px';
+            dropdown.style.margin = '0 auto';
+            dropdown.style.zIndex = '100005';
         } else {
-            renderNotificationsList();
-            dropdown.style.display = 'block';
+            const bellBtn = document.getElementById('btn-notif-bell-desktop');
+            if (bellBtn) {
+                const rect = bellBtn.getBoundingClientRect();
+                dropdown.style.position = 'fixed';
+                dropdown.style.top = (rect.bottom + 8) + 'px';
+                const leftPos = Math.max(12, Math.min(window.innerWidth - 390, rect.left - 280));
+                dropdown.style.left = leftPos + 'px';
+                dropdown.style.right = 'auto';
+                dropdown.style.width = '380px';
+                dropdown.style.maxWidth = '90vw';
+                dropdown.style.margin = '0';
+                dropdown.style.zIndex = '100005';
+            }
         }
     }
 
     function closeNotificationsDropdown() {
         const dropdown = document.getElementById('notif-dropdown-panel');
+        const backdrop = document.getElementById('notif-backdrop');
         if (dropdown) dropdown.style.display = 'none';
+        if (backdrop) backdrop.style.display = 'none';
     }
 
-    // ── 7. رسم قائمة الإشعارات داخل القائمة المنسدلة ──
+    // ── 8. رسم قائمة الإشعارات داخل القائمة المنسدلة ──
     function renderNotificationsList() {
         const listContainer = document.getElementById('notif-list-container');
         if (!listContainer) return;
@@ -150,56 +203,56 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
         const userNotifs = getCurrentUserNotifications();
         if (userNotifs.length === 0) {
             listContainer.innerHTML = `
-                <div style="padding:28px 16px; text-align:center; color:#64748b;">
-                    <div style="font-size:32px; margin-bottom:8px;">🔕</div>
-                    <div style="font-weight:bold; font-size:13px;">لا توجد إشعارات جديدة حالياً</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">ستظهر هنا طلبات الإجازات والأذونات والقرارات فور وصولها</div>
+                <div style="padding:32px 16px; text-align:center; color:#64748b;">
+                    <div style="font-size:36px; margin-bottom:8px;">🔕</div>
+                    <div style="font-weight:bold; font-size:13.5px; color:#1e293b;">لا توجد إشعارات جديدة حالياً</div>
+                    <div style="font-size:11.5px; color:#94a3b8; margin-top:4px;">ستظهر هنا طلبات الإجازات والأذونات وقرارات الاعتماد فور وصولها</div>
                 </div>
             `;
             return;
         }
 
         let html = '';
-        userNotifs.slice(0, 30).forEach(n => {
+        userNotifs.slice(0, 35).forEach(n => {
             let icon = '🔔';
             let iconBg = '#f1f5f9';
             let iconColor = '#1e293b';
 
-            if (n.type.includes('leave')) {
+            if (n.type && n.type.includes('leave')) {
                 icon = '🏖️';
                 iconBg = '#eff6ff';
                 iconColor = '#1d4ed8';
-            } else if (n.type.includes('permission')) {
+            } else if (n.type && n.type.includes('permission')) {
                 icon = '⏱️';
                 iconBg = '#fef3c7';
                 iconColor = '#b45309';
             }
 
-            if (n.type.includes('approved')) {
+            if (n.type && n.type.includes('approved')) {
                 icon = '✅';
                 iconBg = '#dcfce7';
                 iconColor = '#15803d';
-            } else if (n.type.includes('rejected')) {
+            } else if (n.type && n.type.includes('rejected')) {
                 icon = '❌';
                 iconBg = '#fee2e2';
                 iconColor = '#b91c1c';
             }
 
-            const unreadStyle = !n.isRead ? 'background:#f0fdf4; border-right:3.5px solid #10b981;' : 'background:#ffffff; border-right:3.5px solid transparent;';
+            const unreadStyle = !n.isRead ? 'background:#f0fdf4; border-right:4px solid #10b981;' : 'background:#ffffff; border-right:4px solid transparent;';
             const timeAgo = formatTimeAgo(n.createdAt);
 
             html += `
-                <div class="notif-item" onclick="onNotificationClicked('${n.id}', '${n.actionScreen || ''}')" style="display:flex; gap:10px; padding:10px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.2s; ${unreadStyle}">
-                    <div style="width:36px; height:36px; border-radius:50%; background:${iconBg}; color:${iconColor}; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0;">
+                <div class="notif-item" onclick="onNotificationClicked('${n.id}', '${n.actionScreen || ''}')" style="display:flex; gap:10px; padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.2s; ${unreadStyle}">
+                    <div style="width:38px; height:38px; border-radius:50%; background:${iconBg}; color:${iconColor}; display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0;">
                         ${icon}
                     </div>
                     <div style="flex:1; min-width:0;">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
-                            <div style="font-weight:bold; font-size:12.5px; color:#1e293b;">${n.title}</div>
+                            <div style="font-weight:bold; font-size:13px; color:#1e293b;">${n.title}</div>
                             <span style="font-size:10px; color:#94a3b8; white-space:nowrap;">${timeAgo}</span>
                         </div>
-                        <div style="font-size:11.5px; color:#475569; margin-top:2px; line-height:1.4;">${n.message}</div>
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px; font-size:10px; color:#64748b;">
+                        <div style="font-size:12px; color:#475569; margin-top:3px; line-height:1.45;">${n.message}</div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px; font-size:10.5px; color:#64748b;">
                             <span>بواسطة: <strong>${n.senderName}</strong></span>
                             ${!n.isRead ? '<span style="color:#059669; font-weight:bold;">• جديد</span>' : ''}
                         </div>
@@ -211,7 +264,7 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
         listContainer.innerHTML = html;
     }
 
-    // ── 8. عند النقر على إشعار معين ──
+    // ── 9. عند النقر على إشعار معين ──
     function onNotificationClicked(notifId, actionScreen) {
         const notif = notificationsDb.find(n => n.id === notifId);
         if (notif) {
@@ -226,7 +279,7 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
         }
     }
 
-    // ── 9. تحديد الكل كمقروء ──
+    // ── 10. تحديد الكل كمقروء ──
     function markAllNotificationsRead() {
         const userNotifs = getCurrentUserNotifications();
         userNotifs.forEach(n => { n.isRead = true; });
@@ -236,11 +289,91 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
         }
     }
 
-    // ── 10. فحص الإشعارات عند تسجيل الدخول أو فتح التطبيق ──
+    // ── 11. دمج الإشعارات الواردة من السحابة أو السيرفر (Live Sync Engine) ──
+    function syncIncomingNotificationsFromRemote(remoteList, source = 'remote') {
+        if (!Array.isArray(remoteList) || remoteList.length === 0) return;
+
+        const currentMap = new Map(notificationsDb.map(n => [n.id, n]));
+        let hasChanges = false;
+        const newlyReceivedForUser = [];
+        const user = window.currentUser;
+
+        remoteList.forEach(rn => {
+            if (!rn || !rn.id) return;
+            const local = currentMap.get(rn.id);
+            if (!local) {
+                // إشعار جديد تماماً وصل من جهاز آخر
+                currentMap.set(rn.id, rn);
+                hasChanges = true;
+
+                if (!rn.isRead && isNotificationForCurrentUser(rn, user)) {
+                    newlyReceivedForUser.push(rn);
+                }
+            } else {
+                // إذا تغيرت حالة القراءة في جهاز آخر
+                if (rn.isRead && !local.isRead) {
+                    local.isRead = true;
+                    hasChanges = true;
+                }
+            }
+        });
+
+        if (hasChanges) {
+            notificationsDb = Array.from(currentMap.values());
+            notificationsDb.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+            if (notificationsDb.length > 300) {
+                notificationsDb = notificationsDb.slice(0, 300);
+            }
+            localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
+            updateNotificationBellUI();
+
+            // تنبيه صوتي ورسالة فورية عند استلام إشعار جديد للمستخدم
+            if (newlyReceivedForUser.length > 0) {
+                playNotificationChime();
+                const first = newlyReceivedForUser[0];
+                if (typeof showToast === 'function') {
+                    const extra = newlyReceivedForUser.length > 1 ? ` (+${newlyReceivedForUser.length - 1} إشعارات أخرى)` : '';
+                    const toastType = (first.type && first.type.includes('reject')) ? 'error' : ((first.type && first.type.includes('approve')) ? 'success' : 'info');
+                    showToast(`🔔 ${first.title}: ${first.message}${extra}`, toastType);
+                }
+            }
+        }
+    }
+
+    // ── 12. المزامنة الثنائية مع السيرفر المحلي (Local Server Sync) ──
+    let isLocalServerSyncInProgress = false;
+    async function syncNotificationsWithLocalServer() {
+        if (isLocalServerSyncInProgress) return;
+        const isHttp = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+        if (!isHttp) return;
+
+        isLocalServerSyncInProgress = true;
+        try {
+            const resp = await fetch('/api/notifications/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notifications: notificationsDb.slice(0, 100) }),
+                cache: 'no-cache'
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && data.success && Array.isArray(data.notifications)) {
+                    syncIncomingNotificationsFromRemote(data.notifications, 'local-server');
+                }
+            }
+        } catch (e) {
+            // صامت في حالة عدم توفر السيرفر
+        } finally {
+            isLocalServerSyncInProgress = false;
+        }
+    }
+
+    // ── 13. فحص الإشعارات عند تسجيل الدخول أو فتح التطبيق ──
     function checkUserNotificationsOnLogin(user) {
         if (!user) return;
         setTimeout(() => {
             updateNotificationBellUI();
+            syncNotificationsWithLocalServer();
             const userNotifs = getCurrentUserNotifications();
             const unread = userNotifs.filter(n => !n.isRead);
 
@@ -251,7 +384,7 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
                     showToast(`🔔 لديك ${unread.length} إشعار جديد بانتظارك: ${first.title}`, 'info');
                 }
             }
-        }, 800);
+        }, 600);
     }
 
     // مساعدة: صياغة التوقيت الزمني بالعربية
@@ -277,7 +410,7 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
             if (!dropdown.contains(e.target) && 
                 (!bellBtnDesktop || !bellBtnDesktop.contains(e.target)) &&
                 (!bellBtnMobile || !bellBtnMobile.contains(e.target))) {
-                dropdown.style.display = 'none';
+                closeNotificationsDropdown();
             }
         }
     });
@@ -288,14 +421,26 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
     window.toggleNotificationsDropdown = toggleNotificationsDropdown;
     window.closeNotificationsDropdown = closeNotificationsDropdown;
     window.markAllNotificationsRead = markAllNotificationsRead;
+    window.markAllNotificationsAsRead = markAllNotificationsRead; // alias
     window.onNotificationClicked = onNotificationClicked;
     window.checkUserNotificationsOnLogin = checkUserNotificationsOnLogin;
     window.playNotificationChime = playNotificationChime;
+    window.syncIncomingNotificationsFromRemote = syncIncomingNotificationsFromRemote;
+    window.syncNotificationsWithLocalServer = syncNotificationsWithLocalServer;
+
+    // مزامنة دورية خفيفة وسريعة كل 3.5 ثوانٍ مع السيرفر المحلي لدعم الشبكة الداخلية للعيادة
+    setInterval(() => {
+        syncNotificationsWithLocalServer();
+    }, 3500);
 
     // تشغيل مبدئي عند اكتمال تحميل الصفحة
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', updateNotificationBellUI);
+        document.addEventListener('DOMContentLoaded', () => {
+            updateNotificationBellUI();
+            syncNotificationsWithLocalServer();
+        });
     } else {
         updateNotificationBellUI();
+        syncNotificationsWithLocalServer();
     }
 })();

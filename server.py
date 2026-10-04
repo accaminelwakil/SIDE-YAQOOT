@@ -209,6 +209,58 @@ def attendance_punches_api():
     })
 
 
+# ── مركز مزامنة الإشعارات بين الموبايل والديسكتوب (Notifications Sync API) ──
+NOTIFICATIONS_FILE = os.path.join(BASE_DIR, "notifications_store.json")
+
+
+def load_server_notifications():
+    if os.path.exists(NOTIFICATIONS_FILE):
+        try:
+            with open(NOTIFICATIONS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def save_server_notifications(notifs):
+    try:
+        with open(NOTIFICATIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(notifs[:300], f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving server notifications: {e}")
+
+
+@app.route("/api/notifications/sync", methods=["GET", "POST"])
+def notifications_sync_api():
+    """مزامنة فورية للإشعارات بين أجهزة الكمبيوتر والموبايل المتصلة بالمنظومة"""
+    current_notifs = load_server_notifications()
+    if request.method == "POST":
+        data = request.get_json(force=True, silent=True) or {}
+        incoming = data.get("notifications", [])
+        if isinstance(incoming, list):
+            current_map = {n["id"]: n for n in current_notifs if isinstance(n, dict) and "id" in n}
+            for n in incoming:
+                if isinstance(n, dict) and "id" in n:
+                    nid = n["id"]
+                    if nid not in current_map:
+                        current_map[nid] = n
+                    else:
+                        # تحديث حالة القراءة إن كانت مقروءة في الجهاز الوارد
+                        if n.get("isRead") and not current_map[nid].get("isRead"):
+                            current_map[nid]["isRead"] = True
+            
+            merged = list(current_map.values())
+            # ترتيب تنازلياً حسب وقت الإنشاء
+            merged.sort(key=lambda x: str(x.get("createdAt", "")), reverse=True)
+            merged = merged[:300]
+            save_server_notifications(merged)
+            return jsonify({"success": True, "notifications": merged})
+        return jsonify({"success": False, "message": "Invalid format"}), 400
+    else:
+        return jsonify({"success": True, "notifications": current_notifs})
+
+
 # ── النسخ الاحتياطي التلقائي واسترجاع البيانات (Server Backup System) ──
 BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
 LATEST_BACKUP_FILE = os.path.join(BACKUPS_DIR, "latest_backup.json")

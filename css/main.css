@@ -2528,26 +2528,64 @@
             display: inline-block;
         }
 
-        .notif-dropdown-panel {
-            position: absolute;
+        #notif-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
             left: 0;
-            top: calc(100% + 10px);
-            width: 360px;
-            max-width: 90vw;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.45);
+            z-index: 100004;
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+            animation: notifFadeIn 0.2s ease;
+        }
+
+        .notif-dropdown-panel {
+            position: fixed;
             background: #ffffff;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 16px;
-            box-shadow: 0 12px 35px rgba(15, 23, 42, 0.18);
-            z-index: 99999;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 18px;
+            box-shadow: 0 20px 45px rgba(15, 23, 42, 0.28);
+            z-index: 100005;
             display: none;
             overflow: hidden;
-            animation: notifDropdownFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: notifDropdownFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
             direction: rtl;
         }
 
+        @keyframes notifFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
         @keyframes notifDropdownFade {
-            from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+            from { opacity: 0; transform: translateY(-10px) scale(0.96); }
             to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @media (max-width: 991px) {
+            .notif-dropdown-panel {
+                top: 60px !important;
+                left: 10px !important;
+                right: 10px !important;
+                width: calc(100% - 20px) !important;
+                max-width: 440px !important;
+                margin: 0 auto !important;
+                max-height: 82vh !important;
+                box-shadow: 0 25px 50px rgba(0, 0, 0, 0.35) !important;
+            }
+
+            #notif-list-container {
+                max-height: calc(82vh - 65px) !important;
+            }
+        }
+
+        #notif-list-container {
+            max-height: 420px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .notif-item:hover {
