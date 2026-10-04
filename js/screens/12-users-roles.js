@@ -210,18 +210,26 @@
                 if (u.role === 'admin') {
                     ALL_SCREEN_IDS.forEach(sid => { u.screenAccess[sid] = 'edit'; });
                 } else if (u.role === 'accountant') {
-                    const editScreens = ['screen-salary-adjustments', 'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery', 'screen-backup-restore', 'screen-firebase-settings'];
-                    const viewScreens = ['screen-welcome', 'screen-employees', 'screen-attendance', 'screen-emp-general-report', 'screen-totals-report'];
+                    const editScreens = ['screen-salary-adjustments', 'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery', 'screen-backup-restore', 'screen-firebase-settings', 'screen-leaves-permissions', 'screen-punches-payroll'];
+                    const viewScreens = ['screen-welcome', 'screen-employees', 'screen-attendance', 'screen-emp-general-report', 'screen-totals-report', 'screen-attendance-comparison'];
                     editScreens.forEach(sid => { u.screenAccess[sid] = 'edit'; });
                     viewScreens.forEach(sid => { u.screenAccess[sid] = 'view'; });
                 } else if (u.role === 'supervisor') {
                     u.screenAccess['screen-attendance'] = 'edit';
                     u.screenAccess['screen-welcome'] = 'view';
+                    u.screenAccess['screen-leaves-permissions'] = 'edit';
                 } else if (u.role === 'employee') {
                     u.screenAccess['screen-employee-sarki'] = 'view';
+                    u.screenAccess['screen-leaves-permissions'] = 'edit';
                 } else {
                     u.screenAccess['screen-welcome'] = 'view';
+                    u.screenAccess['screen-leaves-permissions'] = 'edit';
                 }
+            }
+
+            // إتاحة شاشة الإجازات والأذونات لجميع المستخدمين والموظفين دوماً
+            if (!u.screenAccess['screen-leaves-permissions'] || u.screenAccess['screen-leaves-permissions'] === 'none') {
+                u.screenAccess['screen-leaves-permissions'] = 'edit';
             }
 
             // مزامنة permissions كمصفوفة من الشاشات التي يحق له رؤيتها
@@ -263,6 +271,8 @@
     function canViewScreen(screenId) {
         if (!currentUser) return false;
         if (currentUser.role === 'admin') return true;
+        // شاشة الإجازات والأذونات متاحة لجميع المستخدمين لتقديم طلباتهم
+        if (screenId === 'screen-leaves-permissions') return true;
         if (currentUser.screenAccess && currentUser.screenAccess[screenId]) {
             return currentUser.screenAccess[screenId] === 'edit' || currentUser.screenAccess[screenId] === 'view';
         }
@@ -272,6 +282,7 @@
     function canEditScreen(screenId) {
         if (!currentUser) return false;
         if (currentUser.role === 'admin') return true;
+        if (screenId === 'screen-leaves-permissions') return true;
         if (currentUser.screenAccess && currentUser.screenAccess[screenId]) {
             return currentUser.screenAccess[screenId] === 'edit';
         }
@@ -427,6 +438,15 @@
         showToast(`مرحباً بك يا ${currentUser.fullName}! تم فتح المنظومة بنجاح. 🎉`, 'success');
         if (typeof checkUserNotificationsOnLogin === 'function') {
             checkUserNotificationsOnLogin(currentUser);
+        }
+
+        // توجيه الموظف لتغيير كلمة المرور الافتراضية عند أول تسجيل دخول لحماية حسابه
+        if (currentUser.role !== 'admin' && (!currentUser.hasChangedPassword || currentUser.pin === '1234')) {
+            setTimeout(() => {
+                if (typeof openChangePasswordModal === 'function') {
+                    openChangePasswordModal(true);
+                }
+            }, 800);
         }
     }
 
@@ -607,17 +627,20 @@
         if (role === 'admin') {
             ALL_SCREEN_IDS.forEach(sid => { accessConfig[sid] = 'edit'; });
         } else if (role === 'accountant') {
-            const editScreens = ['screen-salary-adjustments', 'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery', 'screen-backup-restore', 'screen-firebase-settings'];
-            const viewScreens = ['screen-welcome', 'screen-employees', 'screen-attendance', 'screen-emp-general-report', 'screen-totals-report'];
+            const editScreens = ['screen-salary-adjustments', 'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery', 'screen-backup-restore', 'screen-firebase-settings', 'screen-leaves-permissions', 'screen-punches-payroll'];
+            const viewScreens = ['screen-welcome', 'screen-employees', 'screen-attendance', 'screen-emp-general-report', 'screen-totals-report', 'screen-attendance-comparison'];
             editScreens.forEach(sid => { accessConfig[sid] = 'edit'; });
             viewScreens.forEach(sid => { accessConfig[sid] = 'view'; });
         } else if (role === 'supervisor') {
             accessConfig['screen-attendance'] = 'edit';
             accessConfig['screen-welcome'] = 'view';
+            accessConfig['screen-leaves-permissions'] = 'edit';
         } else if (role === 'employee') {
             accessConfig['screen-employee-sarki'] = 'view';
+            accessConfig['screen-leaves-permissions'] = 'edit';
         } else {
             accessConfig['screen-welcome'] = 'view';
+            accessConfig['screen-leaves-permissions'] = 'edit';
         }
 
         renderPermissionsCheckboxes(accessConfig);
@@ -732,7 +755,12 @@
                 <td>${u.fullName}</td>
                 <td><span class="role-badge ${roleBadgeClass}">${roleName}</span></td>
                 <td>${permsBadge}</td>
-                <td style="font-family:Consolas, monospace; letter-spacing:2px; font-size:13px;">••••</td>
+                <td style="font-family:Consolas, monospace; font-size:13px; text-align:center;">
+                    <div style="display:inline-flex; align-items:center; gap:6px; background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:3px 8px;">
+                        <span style="font-weight:800; color:#15803d; letter-spacing:1px;" id="pin-val-${u.username}">${u.pin || '-'}</span>
+                        <button type="button" style="background:none; border:none; cursor:pointer; font-size:11px; padding:0; color:#059669;" onclick="copyUserPin('${u.pin}')" title="نسخ كلمة المرور">📋</button>
+                    </div>
+                </td>
                 <td>${u.createdAt || '-'}</td>
                 <td>
                     <span class="badge ${isCurrent ? 'badge-status-active' : 'badge-dept'}">
@@ -1177,6 +1205,123 @@
         }
     }
 
+    // ── تغيير المستخدم لكلمة المرور الخاصة به بنفسه ──────────────────
+    function openChangePasswordModal(isFirstTime = false) {
+        const modal = document.getElementById('modal-change-password');
+        if (!modal) return;
+        const curInput = document.getElementById('change-pwd-current');
+        const newInput = document.getElementById('change-pwd-new');
+        const confInput = document.getElementById('change-pwd-confirm');
+        const errEl = document.getElementById('change-pwd-error');
+        const introEl = document.getElementById('change-pwd-intro');
+
+        if (curInput) curInput.value = '';
+        if (newInput) newInput.value = '';
+        if (confInput) confInput.value = '';
+        if (errEl) errEl.style.display = 'none';
+
+        if (introEl) {
+            if (isFirstTime) {
+                introEl.innerHTML = `👋 مرحباً بك يا <strong>${currentUser ? currentUser.fullName : ''}</strong>!<br>لحماية خصوصية حسابك، يرجى تعيين كلمة مرور شخصية خاصة بك بعد تسجيلك لأول مرة.`;
+            } else {
+                introEl.textContent = 'يمكنك تعيين كلمة مرور جديدة لحسابك وستظهر محدثة تلقائياً لدى مدير النظام.';
+            }
+        }
+
+        modal.style.display = 'flex';
+        setTimeout(() => { if (curInput) curInput.focus(); }, 120);
+    }
+
+    function closeChangePasswordModal() {
+        const modal = document.getElementById('modal-change-password');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function handleUserSelfChangePassword(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        const curInput = document.getElementById('change-pwd-current');
+        const newInput = document.getElementById('change-pwd-new');
+        const confInput = document.getElementById('change-pwd-confirm');
+        const errEl = document.getElementById('change-pwd-error');
+
+        const curPwd = (curInput ? curInput.value : '').trim();
+        const newPwd = (newInput ? newInput.value : '').trim();
+        const confPwd = (confInput ? confInput.value : '').trim();
+
+        if (!currentUser) {
+            alert('⚠️ لم يتم العثور على جلسة مستخدم نشطة!');
+            return;
+        }
+
+        if (String(currentUser.pin).trim() !== curPwd) {
+            if (errEl) {
+                errEl.textContent = '❌ كلمة المرور الحالية غير صحيحة! يرجى التأكد وإعادة المحاولة.';
+                errEl.style.display = 'block';
+            }
+            if (curInput) { curInput.value = ''; curInput.focus(); }
+            return;
+        }
+
+        if (!newPwd || newPwd.length < 2) {
+            if (errEl) {
+                errEl.textContent = '⚠️ يرجى إدخال كلمة مرور جديدة مكونة من حرفين أو رقمين على الأقل.';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+
+        if (newPwd !== confPwd) {
+            if (errEl) {
+                errEl.textContent = '⚠️ كلمة المرور الجديدة وتأكيدها غير متطابقين!';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+
+        // تحديث كلمة المرور للمستخدم النشط
+        currentUser.pin = newPwd;
+        currentUser.hasChangedPassword = true;
+
+        // تحديث المستخدم في قاعدة بيانات المستخدمين
+        const target = usersDb.find(u => u.username.toLowerCase() === currentUser.username.toLowerCase());
+        if (target) {
+            target.pin = newPwd;
+            target.hasChangedPassword = true;
+        }
+
+        localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+        localStorage.setItem('erp_current_user', JSON.stringify(currentUser));
+        sessionStorage.setItem('erp_auth_session', JSON.stringify({
+            username: currentUser.username,
+            loginTime: new Date().toISOString()
+        }));
+
+        if (typeof pushSingleCollectionToFirebase === 'function') {
+            try {
+                pushSingleCollectionToFirebase('users', usersDb);
+            } catch(err) {}
+        }
+
+        renderUsersTable();
+        closeChangePasswordModal();
+
+        alert('✔ تم تغيير كلمة المرور بنجاح! تم حفظ التحديث وستظهر كلمة المرور الجديدة في شاشة الصلاحيات.');
+        showToast('تم تحديث كلمة المرور الخاصة بك بنجاح! 🔑', 'success');
+    }
+
+    function copyUserPin(pin) {
+        if (!pin || pin === '-') return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(pin).then(() => {
+                showToast(`تم نسخ كلمة المرور: ${pin} 📋`, 'info');
+            }).catch(() => {
+                prompt('انسخ كلمة المرور من هنا:', pin);
+            });
+        } else {
+            prompt('انسخ كلمة المرور من هنا:', pin);
+        }
+    }
+
     // تصدير الدوال للنطاق العام
     window.initAuthSystem = initAuthSystem;
     window.checkAuthAndRequireLogin = checkAuthAndRequireLogin;
@@ -1202,3 +1347,7 @@
     window.handleEmployeeSelfRegister = handleEmployeeSelfRegister;
     window.applyRolePermissions = applyRolePermissions;
     window.renderUsersTable = renderUsersTable;
+    window.openChangePasswordModal = openChangePasswordModal;
+    window.closeChangePasswordModal = closeChangePasswordModal;
+    window.handleUserSelfChangePassword = handleUserSelfChangePassword;
+    window.copyUserPin = copyUserPin;

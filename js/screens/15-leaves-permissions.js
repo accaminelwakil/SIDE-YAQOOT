@@ -19,6 +19,53 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
         renderLeavesPermissionsScreen();
     }
 
+    // ── دوال التحقق من دور المستخدم وإدارته للموظفين ──────────────────
+    function isUserManager(user) {
+        if (!user) return false;
+        if (user.role === 'admin' || user.username === 'admin') return true;
+        if (user.isManager === true || user.role === 'manager' || user.role === 'supervisor') return true;
+        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const uEmpId = user.empId ? String(user.empId) : null;
+        if (uEmpId) {
+            const hasSubordinates = allEmps.some(e => String(e.managerId) === uEmpId || (e.managerName && e.managerName === user.fullName));
+            if (hasSubordinates) return true;
+        }
+        return false;
+    }
+
+    function getUserDepartment(user) {
+        if (!user) return null;
+        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        if (user.empId) {
+            const found = allEmps.find(e => String(e.id) === String(user.empId));
+            if (found && found.job) return found.job.trim();
+        }
+        return null;
+    }
+
+    function getEmployeesManagedByUser(user) {
+        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        if (!user) return [];
+        if (user.role === 'admin' || user.username === 'admin') return allEmps;
+
+        const uEmpId = user.empId ? String(user.empId) : null;
+        const uDept = getUserDepartment(user);
+        const isMgr = isUserManager(user);
+
+        if (isMgr) {
+            return allEmps.filter(e => {
+                const isSelf = uEmpId && String(e.id) === uEmpId;
+                const isSub = (uEmpId && String(e.managerId) === uEmpId) ||
+                              (e.managerName && e.managerName === user.fullName) ||
+                              (uDept && e.job && e.job.trim() === uDept);
+                return isSelf || isSub;
+            });
+        } else {
+            // مستخدم عادي / موظف: يقدم لنفسه فقط
+            return allEmps.filter(e => uEmpId && String(e.id) === uEmpId);
+        }
+    }
+
     // تهيئة الشاشة
     function renderLeavesPermissionsScreen() {
         const tableBody = document.getElementById('leaves-table-body');
@@ -33,7 +80,34 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
         const searchDept = (document.getElementById('leaves-filter-dept') ? document.getElementById('leaves-filter-dept').value : '').trim();
         const searchMonth = (document.getElementById('leaves-filter-month') ? document.getElementById('leaves-filter-month').value : '').trim();
 
+        const user = window.currentUser || {};
+        const isAdmin = (user.role === 'admin' || user.username === 'admin');
+        const isManager = isUserManager(user);
+        const userEmpId = user.empId ? String(user.empId) : null;
+        const userDept = getUserDepartment(user);
+
         let filtered = leavesPermissionsDb.slice();
+
+        // ── تخصيص نطاق الرؤية بحسب الصلاحيات الإدارية ──
+        if (!isAdmin) {
+            if (isManager) {
+                // المدير يرى طلباته الشخصية وطلبات الموظفين التابعين لإدارته وقسمه
+                filtered = filtered.filter(item => {
+                    const isSelf = userEmpId && String(item.empId) === userEmpId;
+                    const isSubordinate = (userEmpId && String(item.managerEmpId) === userEmpId) || 
+                                          (item.managerName && item.managerName === user.fullName) ||
+                                          (userDept && item.dept === userDept);
+                    return isSelf || isSubordinate;
+                });
+            } else {
+                // الموظف العادي يرى طلباته الخاصة فقط ولا يرى طلبات الآخرين
+                filtered = filtered.filter(item => {
+                    if (userEmpId && String(item.empId) === userEmpId) return true;
+                    if (item.submittedBy === user.fullName || item.submittedBy === user.username) return true;
+                    return false;
+                });
+            }
+        }
 
         // فلترة بالنوع
         if (currentFilterType !== 'all') {
@@ -75,10 +149,6 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
 
         if (emptyHint) emptyHint.style.display = 'none';
 
-        const user = window.currentUser || {};
-        const isAdmin = (user.role === 'admin' || user.username === 'admin');
-        const isManager = Boolean(user.isManager || isAdmin);
-
         let html = '';
         filtered.forEach((item, index) => {
             const isLeave = (item.itemType === 'leave');
@@ -100,8 +170,12 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
                 `<strong>${item.hoursCount}</strong> س (${item.startDate} من ${item.startTime || '-'} إلى ${item.endTime || '-'})`;
 
             // هل يحق للمستخدم الحالي اتخاذ قرار الاعتماد؟
-            // مدير النظام أو المدير المباشر لهذا الموظف
-            const canApprove = isAdmin || (isManager && (String(item.managerEmpId) === String(user.empId) || item.managerName === user.fullName));
+            // مدير النظام أو المدير المباشر لهذا الموظف (بشرط ألا يعتمد طلبه لنفسه)
+            const isSelf = userEmpId && String(item.empId) === userEmpId;
+            const isSubordinate = (userEmpId && String(item.managerEmpId) === userEmpId) || 
+                                  (item.managerName && item.managerName === user.fullName) ||
+                                  (userDept && item.dept === userDept);
+            const canApprove = isAdmin || (isManager && isSubordinate && !isSelf);
 
             let actionsHtml = '';
             if (item.status === 'pending' && canApprove) {
@@ -174,29 +248,69 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
         if (approvedPermsEl) approvedPermsEl.textContent = approvedPerms + ' ساعة';
     }
 
-    // ملء قوائم الموظفين والأقسام
+    // ملء قوائم الموظفين والأقسام بحسب صلاحيات المستخدم
     function populateLeavesEmployeeDropdowns() {
         const allEmps = Array.isArray(window.employees) ? window.employees : [];
-        const empSelects = [
+        const user = window.currentUser || {};
+        const isAdmin = (user.role === 'admin' || user.username === 'admin');
+        const isMgr = isUserManager(user);
+        const userEmpId = user.empId ? String(user.empId) : null;
+        const allowedEmps = getEmployeesManagedByUser(user);
+
+        // قوائم تقديم الطلبات (الإجازات والأذونات)
+        const modalSelects = [
             document.getElementById('new-leave-emp-select'),
-            document.getElementById('new-perm-emp-select'),
-            document.getElementById('leaves-filter-emp')
+            document.getElementById('new-perm-emp-select')
         ];
 
-        empSelects.forEach(sel => {
+        modalSelects.forEach(sel => {
             if (!sel) return;
             const curVal = sel.value;
-            const isFilter = (sel.id === 'leaves-filter-emp');
-            sel.innerHTML = isFilter ? '<option value="">جميع الموظفين</option>' : '<option value="">-- اختر الموظف --</option>';
+            sel.innerHTML = '';
 
-            allEmps.forEach(e => {
+            if (allowedEmps.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = userEmpId || '';
+                opt.textContent = `${user.fullName || 'أنت'} (طلب شخصي)`;
+                sel.appendChild(opt);
+                sel.disabled = true;
+            } else {
+                if (allowedEmps.length > 1) {
+                    sel.innerHTML = '<option value="">-- اختر الموظف --</option>';
+                    sel.disabled = false;
+                } else {
+                    sel.disabled = true; // موظف عادي: مقفول على اسمه فقط
+                }
+
+                allowedEmps.forEach(e => {
+                    const opt = document.createElement('option');
+                    opt.value = e.id;
+                    const isSelfLabel = (userEmpId && String(e.id) === userEmpId) ? ' (أنت - طلب شخصي)' : '';
+                    opt.textContent = `${e.name} (${e.job || 'عام'}) - #${e.id}${isSelfLabel}`;
+                    sel.appendChild(opt);
+                });
+
+                if (curVal && allowedEmps.some(e => String(e.id) === String(curVal))) {
+                    sel.value = curVal;
+                } else if (userEmpId && allowedEmps.some(e => String(e.id) === userEmpId)) {
+                    sel.value = userEmpId;
+                }
+            }
+        });
+
+        // قائمة فلتر الموظفين بالجدول
+        const filterSelect = document.getElementById('leaves-filter-emp');
+        if (filterSelect) {
+            const curVal = filterSelect.value;
+            filterSelect.innerHTML = '<option value="">جميع الموظفين المتاحين</option>';
+            allowedEmps.forEach(e => {
                 const opt = document.createElement('option');
                 opt.value = e.id;
                 opt.textContent = `${e.name} (${e.job || 'عام'}) - #${e.id}`;
-                sel.appendChild(opt);
+                filterSelect.appendChild(opt);
             });
-            if (curVal) sel.value = curVal;
-        });
+            if (curVal) filterSelect.value = curVal;
+        }
 
         // قائمة الأقسام
         const deptFilter = document.getElementById('leaves-filter-dept');
@@ -215,7 +329,8 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
 
     // عند تغيير الموظف في نموذج طلب الإجازة: حساب وإظهار رصيد الإجازات
     function onLeaveEmpSelected() {
-        const empId = document.getElementById('new-leave-emp-select').value;
+        const sel = document.getElementById('new-leave-emp-select');
+        const empId = sel ? sel.value : null;
         const infoBox = document.getElementById('leave-emp-balance-info');
         if (!empId || !infoBox) {
             if (infoBox) infoBox.style.display = 'none';
@@ -288,7 +403,16 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
     // حفظ طلب الإجازة
     function submitNewLeaveRequest(e) {
         if (e) e.preventDefault();
-        const empId = document.getElementById('new-leave-emp-select').value;
+        const user = window.currentUser || {};
+        const isMgr = isUserManager(user);
+        const sel = document.getElementById('new-leave-emp-select');
+        let empId = sel ? sel.value : null;
+
+        // المستخدم العادي لا يمكنه التقديم إلا لنفسه فقط
+        if (!isMgr && user.empId) {
+            empId = user.empId;
+        }
+
         if (!empId) {
             alert('يرجى اختيار الموظف أولاً!');
             return;
@@ -394,7 +518,16 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
     // حفظ طلب الإذن
     function submitNewPermissionRequest(e) {
         if (e) e.preventDefault();
-        const empId = document.getElementById('new-perm-emp-select').value;
+        const user = window.currentUser || {};
+        const isMgr = isUserManager(user);
+        const sel = document.getElementById('new-perm-emp-select');
+        let empId = sel ? sel.value : null;
+
+        // المستخدم العادي لا يمكنه التقديم إلا لنفسه فقط
+        if (!isMgr && user.empId) {
+            empId = user.empId;
+        }
+
         if (!empId) {
             alert('يرجى اختيار الموظف أولاً!');
             return;

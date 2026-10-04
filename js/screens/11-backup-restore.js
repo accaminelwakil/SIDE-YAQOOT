@@ -12,29 +12,48 @@
             const cycleCount = Object.keys(salaryAdjustmentsDb || {}).length;
             adjEl.textContent = `${cycleCount} دورة مسجلة`;
         }
+
+        updateServerBackupStatusDisplay();
     }
 
-    function exportFullBackupJSON() {
-        const fullBackup = {
+    function updateServerBackupStatusDisplay() {
+        const lastStr = localStorage.getItem('erp_last_server_backup_str') || localStorage.getItem('erp_last_server_backup_time');
+        const statusEl = document.getElementById('server-backup-last-time');
+        if (statusEl) {
+            if (lastStr) {
+                statusEl.innerHTML = `<span style="color:#059669; font-weight:bold;">آخر حفظ: ${lastStr}</span>`;
+            } else {
+                statusEl.innerHTML = `<span style="color:#d97706;">لم يتم الحفظ على السيرفر بعد (سيعمل تلقائياً خلال 24 ساعة)</span>`;
+            }
+        }
+    }
+
+    function getFullSystemBackupData() {
+        return {
             metadata: {
                 appName: 'منظومة إدارة رواتب وسراكي عيادات سيدى ياقوت التخصصية',
                 exportDate: new Date().toISOString(),
-                exportedBy: currentUser ? currentUser.fullName : 'المدير العام',
-                version: '3.0'
+                exportedBy: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.fullName : 'المدير العام',
+                version: '3.5'
             },
             data: {
-                employees: employees,
-                attendanceRecords: attendanceRecords,
-                salaryAdjustmentsDb: salaryAdjustmentsDb,
-                savedPayrollSummaryCycles: savedPayrollSummaryCycles,
-                officialHolidaysDb: officialHolidaysDb,
-                usersDb: usersDb,
+                employees: (typeof employees !== 'undefined') ? employees : [],
+                attendanceRecords: (typeof attendanceRecords !== 'undefined') ? attendanceRecords : [],
+                salaryAdjustmentsDb: (typeof salaryAdjustmentsDb !== 'undefined') ? salaryAdjustmentsDb : {},
+                savedPayrollSummaryCycles: (typeof savedPayrollSummaryCycles !== 'undefined') ? savedPayrollSummaryCycles : {},
+                officialHolidaysDb: (typeof officialHolidaysDb !== 'undefined') ? officialHolidaysDb : [],
+                usersDb: (typeof usersDb !== 'undefined') ? usersDb : [],
                 leavesPermissionsDb: (typeof leavesPermissionsDb !== 'undefined') ? leavesPermissionsDb : JSON.parse(localStorage.getItem('erp_leaves_permissions_db') || '[]'),
                 notificationsDb: (typeof notificationsDb !== 'undefined') ? notificationsDb : JSON.parse(localStorage.getItem('erp_notifications_db') || '[]'),
-                smartPunchesDb: JSON.parse(localStorage.getItem('erp_smart_punches_db') || '[]')
+                smartPunchesDb: JSON.parse(localStorage.getItem('erp_smart_punches_db') || '[]'),
+                departments: (typeof departments !== 'undefined') ? departments : [],
+                shifts: (typeof shifts !== 'undefined') ? shifts : []
             }
         };
+    }
 
+    function exportFullBackupJSON() {
+        const fullBackup = getFullSystemBackupData();
         const jsonStr = JSON.stringify(fullBackup, null, 2);
         const dateStr = new Date().toISOString().split('T')[0];
         const filename = `نسخة_احتياطية_عيادات_سيدى_ياقوت_${dateStr}.json`;
@@ -53,6 +72,109 @@
     function exportConsolidatedExcelBackup() {
         exportEmployeesCSV();
     }
+
+    // ── نظام النسخ الاحتياطي التلقائي والدوري كل 24 ساعة على السيرفر ──
+    async function saveBackupToServer(isAuto = false) {
+        try {
+            const fullBackup = getFullSystemBackupData();
+            const response = await fetch('/api/backup/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fullBackup)
+            });
+            const resData = await response.json();
+            if (resData.success) {
+                const nowIso = new Date().toISOString();
+                const nowStr = resData.timestamp || new Date().toLocaleString('ar-EG');
+                localStorage.setItem('erp_last_server_backup_time', String(Date.now()));
+                localStorage.setItem('erp_last_server_backup_str', nowStr);
+                updateServerBackupStatusDisplay();
+
+                if (!isAuto) {
+                    alert(`✔ ${resData.message}\nاسم الملف: ${resData.filename}\nتاريخ الحفظ: ${nowStr}`);
+                    showToast('تم حفظ نسخة احتياطية على السيرفر بنجاح! 💾', 'success');
+                } else {
+                    if (typeof showToast === 'function') {
+                        showToast('تم حفظ نسخة احتياطية دورية (كل 24 ساعة) على السيرفر بنجاح 💾', 'info');
+                    }
+                }
+            } else {
+                if (!isAuto) alert(`⚠️ فشل حفظ النسخة على السيرفر: ${resData.message}`);
+            }
+        } catch (err) {
+            console.warn('تعذر الاتصال بسيرفر النسخ الاحتياطي:', err);
+            if (!isAuto) {
+                alert('⚠️ تعذر الاتصال بالسيرفر! يرجى التأكد من تشغيل السيرفر بواسطة ملف تشغيل_البرنامج_للشبكة_والموبايل.bat');
+            }
+        }
+    }
+
+    // ── استرجاع آخر نسخة احتياطية من السيرفر بضغطة زر ──
+    async function restoreLatestBackupFromServer() {
+        try {
+            const btn = document.getElementById('btn-server-restore-latest');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '⏳ جاري فحص السيرفر...';
+            }
+
+            const res = await fetch('/api/backup/latest');
+            const resData = await res.json();
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '🔄 استرجاع آخر نسخة احتياطية من السيرفر';
+            }
+
+            if (!res.ok || !resData.success || !resData.backup) {
+                alert(`⚠️ ${resData.message || 'لا توجد نسخة احتياطية محفوظة على السيرفر حتى الآن!'}`);
+                return;
+            }
+
+            const bData = resData.backup.data || resData.backup;
+            const empCount = bData.employees ? bData.employees.length : 0;
+            const attCount = bData.attendanceRecords ? bData.attendanceRecords.length : 0;
+            const lastMod = resData.lastModified || 'تاريخ غير محدد';
+
+            const conf = confirm(
+                `هل تؤكد استعادة آخر نسخة احتياطية محفوظة على السيرفر؟\n\n` +
+                `• تاريخ النسخة على السيرفر: ${lastMod}\n` +
+                `• عدد الموظفين: ${empCount} موظف\n` +
+                `• عدد حركات الحضور: ${attCount} حركة\n\n` +
+                `⚠️ تنبيه: سيتم تحديث قاعدة بيانات البرنامج بالكامل بالبيانات المسترجعة من السيرفر.`
+            );
+
+            if (!conf) return;
+
+            pendingBackupDataToRestore = bData;
+            confirmAndExecuteRestore();
+        } catch (err) {
+            console.error('خطأ في استرجاع النسخة من السيرفر:', err);
+            const btn = document.getElementById('btn-server-restore-latest');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '🔄 استرجاع آخر نسخة احتياطية من السيرفر';
+            }
+            alert('⚠️ تعذر الاتصال بالسيرفر لجلب آخر نسخة احتياطية! تأكد من تشغيل ملف Python الخادم (server.py).');
+        }
+    }
+
+    // فحص النسخ التلقائي كل 24 ساعة في الخلفية
+    function checkAndTrigger24hAutoBackup() {
+        try {
+            const lastBackupRaw = localStorage.getItem('erp_last_server_backup_time');
+            const now = Date.now();
+            const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+            if (!lastBackupRaw || (now - Number(lastBackupRaw)) >= TWENTY_FOUR_HOURS) {
+                saveBackupToServer(true);
+            }
+        } catch(e) {}
+    }
+
+    // فحص النسخ التلقائي عند بدء التشغيل وتكراره كل ساعة
+    setTimeout(checkAndTrigger24hAutoBackup, 5000);
+    setInterval(checkAndTrigger24hAutoBackup, 60 * 60 * 1000);
 
     function onBackupFileSelected(input) {
         if (!input.files || input.files.length === 0) return;
@@ -105,18 +227,16 @@
             return;
         }
 
-        if (!confirm('⚠️ تنبيه أمني: استعادة النسخة الاحتياطية ستقوم بتحديث قاعدة بيانات المنظومة بالكامل بالبيانات الموجودة في الملف. هل تؤكد المتابعة؟')) {
-            return;
-        }
-
         if (pendingBackupDataToRestore.employees) {
             employees = pendingBackupDataToRestore.employees;
             localStorage.setItem('erp_employees_db', JSON.stringify(employees));
+            localStorage.setItem('erp_employees', JSON.stringify(employees));
         }
 
         if (pendingBackupDataToRestore.attendanceRecords) {
             attendanceRecords = pendingBackupDataToRestore.attendanceRecords;
             localStorage.setItem('erp_attendance_db', JSON.stringify(attendanceRecords));
+            localStorage.setItem('erp_attendance', JSON.stringify(attendanceRecords));
         }
 
         if (pendingBackupDataToRestore.salaryAdjustmentsDb) {
@@ -153,6 +273,26 @@
             localStorage.setItem('erp_smart_punches_db', JSON.stringify(pendingBackupDataToRestore.smartPunchesDb));
         }
 
+        if (pendingBackupDataToRestore.departments) {
+            departments = pendingBackupDataToRestore.departments;
+            localStorage.setItem('erp_departments', JSON.stringify(departments));
+        }
+
+        if (pendingBackupDataToRestore.shifts) {
+            shifts = pendingBackupDataToRestore.shifts;
+            localStorage.setItem('erp_shifts', JSON.stringify(shifts));
+        }
+
+        // مزامنة السحابة
+        if (typeof pushSingleCollectionToFirebase === 'function') {
+            try {
+                pushSingleCollectionToFirebase('employees', employees);
+                pushSingleCollectionToFirebase('attendance', attendanceRecords);
+                pushSingleCollectionToFirebase('salaryAdjustments', salaryAdjustmentsDb);
+                pushSingleCollectionToFirebase('users', usersDb);
+            } catch(e) {}
+        }
+
         updateAllDeptDropdownsAndFilters();
         populateAllEmployeeDropdowns();
         renderEmployeesTable();
@@ -166,11 +306,94 @@
         switchScreen('screen-welcome', document.getElementById('nav-screen-welcome'));
     }
 
+    // ── مسح وتصفير كافة البيانات المسجلة بالكامل (البرنامج فارغ تماماً) ──
+    function clearAllSystemDataCompletelyPrompt() {
+        const conf = prompt(
+            '⚠️ تحذير شديد ونهائي ⚠️\n' +
+            'سيتم حذف وتصفير جميع بيانات البرنامج بالكامل:\n' +
+            '• مسح جميع الموظفين (0 موظف)\n' +
+            '• مسح سجلات الحضور والانصراف والورديات بالكامل\n' +
+            '• مسح معاملات تسويات الرواتب والسلف والخصومات\n' +
+            '• مسح مسيرات الرواتب ودورات الصرف\n' +
+            '• مسح طلبات الإجازات والأذونات وبصمات الحضور الذكية\n' +
+            'وسيصبح البرنامج فارغاً تماماً مع الاحتفاظ بحسابك الإداري.\n\n' +
+            'للتأكيد والمتابعة، اكتب كلمة "مسح نهائي":'
+        );
+
+        if (conf !== 'مسح نهائي') {
+            if (conf !== null) {
+                alert('❌ تم إلغاء العملية، لم يتم مسح أي بيانات نظراً لعدم كتابة كلمة التأكيد بشكل صحيح.');
+            }
+            return;
+        }
+
+        // الحفاظ على حساب الأدمن الأساسي أو الحساب الحالي لضمان عدم القفل
+        const currentAdminUser = (usersDb && usersDb.find(u => u.username === 'admin')) || (currentUser ? currentUser : {
+            username: 'admin',
+            fullName: 'المدير العام',
+            role: 'admin',
+            pin: '1234',
+            permissions: (typeof ALL_SCREEN_IDS !== 'undefined' ? [...ALL_SCREEN_IDS] : []),
+            screenAccess: (typeof ALL_SCREEN_IDS !== 'undefined' ? ALL_SCREEN_IDS.reduce((acc, sid) => ({ ...acc, [sid]: 'edit' }), {}) : {}),
+            createdAt: new Date().toISOString().split('T')[0]
+        });
+
+        employees = [];
+        attendanceRecords = [];
+        salaryAdjustmentsDb = {};
+        savedPayrollSummaryCycles = {};
+        if (typeof leavesPermissionsDb !== 'undefined') leavesPermissionsDb = [];
+        if (typeof notificationsDb !== 'undefined') notificationsDb = [];
+        if (typeof payrollDeliveryDb !== 'undefined') payrollDeliveryDb = {};
+        usersDb = [currentAdminUser];
+        currentUser = currentAdminUser;
+
+        // تفريغ التخزين المحلي
+        localStorage.setItem('erp_employees_db', JSON.stringify([]));
+        localStorage.setItem('erp_employees', JSON.stringify([]));
+        localStorage.setItem('erp_attendance_db', JSON.stringify([]));
+        localStorage.setItem('erp_attendance', JSON.stringify([]));
+        localStorage.setItem('erp_salary_adjustments_db', JSON.stringify({}));
+        localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify({}));
+        localStorage.setItem('erp_leaves_permissions_db', JSON.stringify([]));
+        localStorage.setItem('erp_notifications_db', JSON.stringify([]));
+        localStorage.setItem('erp_smart_punches_db', JSON.stringify([]));
+        localStorage.setItem('erp_payroll_delivery_db', JSON.stringify({}));
+        localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+        localStorage.setItem('erp_current_user', JSON.stringify(currentUser));
+
+        // مزامنة التفريغ مع Firebase في حال الاتصال
+        if (typeof pushSingleCollectionToFirebase === 'function') {
+            try {
+                pushSingleCollectionToFirebase('employees', []);
+                pushSingleCollectionToFirebase('attendance', []);
+                pushSingleCollectionToFirebase('salaryAdjustments', {});
+                pushSingleCollectionToFirebase('leavesPermissions', []);
+                pushSingleCollectionToFirebase('users', usersDb);
+            } catch(e) {}
+        }
+
+        // تحديث واجهات المنظومة
+        if (typeof updateAllDeptDropdownsAndFilters === 'function') updateAllDeptDropdownsAndFilters();
+        if (typeof populateAllEmployeeDropdowns === 'function') populateAllEmployeeDropdowns();
+        if (typeof renderEmployeesTable === 'function') renderEmployeesTable();
+        if (typeof onShiftDateChanged === 'function') onShiftDateChanged();
+        if (typeof renderWelcomeDashboard === 'function') renderWelcomeDashboard();
+        if (typeof renderBackupDashboard === 'function') renderBackupDashboard();
+        if (typeof initAuthSystem === 'function') initAuthSystem();
+        if (typeof refreshActiveScreenData === 'function') refreshActiveScreenData();
+
+        alert('✔ تم مسح وتصفير كافة بيانات البرنامج بنجاح تام! المنظومة الآن فارغة تماماً وجاهزة لتسجيل البيانات الجديدة.');
+        showToast('تم تصفير المنظومة ومسح كافة البيانات بالكامل 🗑️', 'warning');
+        switchScreen('screen-welcome', document.getElementById('nav-screen-welcome'));
+    }
+
     function clearAttendanceOnlyPrompt() {
         const conf = prompt('⚠️ هل تريد حقاً مسح جميع حركات الحضور والانصراف المسجلة؟\nاكتب كلمة "تأكيد" للمتابعة:');
         if (conf === 'تأكيد') {
             attendanceRecords = [];
             localStorage.setItem('erp_attendance_db', JSON.stringify(attendanceRecords));
+            localStorage.setItem('erp_attendance', JSON.stringify(attendanceRecords));
             onShiftDateChanged();
             renderWelcomeDashboard();
             renderBackupDashboard();
@@ -191,11 +414,11 @@
     }
 
     function factoryResetPrompt() {
-        const conf = prompt('⚠️ تحذير شديد: سيتم مسح كافة البيانات وإعادة المنظومة لحالتها الأولى!\nللتأكيد، اكتب كلمة "تأكيد":');
+        const conf = prompt('⚠️ تحذير: سيتم استرجاع بيانات العيادات الافتراضية (34 موظف)!\nللتأكيد، اكتب كلمة "تأكيد":');
         if (conf === 'تأكيد') {
-            localStorage.clear();
             employees = INITIAL_EMPLOYEES;
             localStorage.setItem('erp_employees_db', JSON.stringify(employees));
+            localStorage.setItem('erp_employees', JSON.stringify(employees));
             attendanceRecords = [];
             salaryAdjustmentsDb = {};
             usersDb = DEFAULT_USERS;
@@ -209,8 +432,14 @@
             onShiftDateChanged();
             renderWelcomeDashboard();
             initAuthSystem();
-            alert('تمت إعادة ضبط المصنع بنجاح!');
+            alert('تمت استعادة البيانات الافتراضية بنجاح!');
             window.location.reload();
         }
     }
+
+    // إتاحة الدوال عامة
+    window.saveBackupToServer = saveBackupToServer;
+    window.restoreLatestBackupFromServer = restoreLatestBackupFromServer;
+    window.clearAllSystemDataCompletelyPrompt = clearAllSystemDataCompletelyPrompt;
+    window.checkAndTrigger24hAutoBackup = checkAndTrigger24hAutoBackup;
 

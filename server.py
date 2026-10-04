@@ -209,6 +209,111 @@ def attendance_punches_api():
     })
 
 
+# ── النسخ الاحتياطي التلقائي واسترجاع البيانات (Server Backup System) ──
+BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
+LATEST_BACKUP_FILE = os.path.join(BACKUPS_DIR, "latest_backup.json")
+
+
+def ensure_backups_dir():
+    if not os.path.exists(BACKUPS_DIR):
+        try:
+            os.makedirs(BACKUPS_DIR, exist_ok=True)
+        except Exception:
+            pass
+
+
+@app.route("/api/backup/save", methods=["POST"])
+def save_server_backup_api():
+    """حفظ نسخة احتياطية من بيانات المنظومة على السيرفر مع الاحتفاظ بآخر نسخة"""
+    try:
+        data = request.get_json(force=True, silent=True)
+        if not data:
+            return jsonify({"success": False, "message": "لا توجد بيانات صالحة للحفظ!"}), 400
+
+        ensure_backups_dir()
+        now = datetime.datetime.now()
+        timestamp_str = now.strftime("%Y%m%d_%H%M%S")
+        filename = f"backup_{timestamp_str}.json"
+        filepath = os.path.join(BACKUPS_DIR, filename)
+
+        # حفظ الملف المؤرخ
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        # حفظ أو تحديث ملف آخر نسخة
+        with open(LATEST_BACKUP_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        # الاحتفاظ بآخر 30 نسخة وحذف القديم لتوفير المساحة
+        try:
+            all_backups = sorted(
+                [f for f in os.listdir(BACKUPS_DIR) if f.startswith("backup_") and f.endswith(".json")],
+                reverse=True
+            )
+            for old_f in all_backups[30:]:
+                os.remove(os.path.join(BACKUPS_DIR, old_f))
+        except Exception:
+            pass
+
+        return jsonify({
+            "success": True,
+            "filename": filename,
+            "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "message": "تم حفظ النسخة الاحتياطية بنجاح على السيرفر! 💾"
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": f"حدث خطأ أثناء حفظ النسخة: {str(e)}"}), 500
+
+
+@app.route("/api/backup/latest", methods=["GET"])
+def get_latest_server_backup_api():
+    """استرجاع أحدث نسخة احتياطية محفوظة على السيرفر"""
+    ensure_backups_dir()
+    if not os.path.exists(LATEST_BACKUP_FILE):
+        return jsonify({
+            "success": False,
+            "message": "لا توجد أي نسخ احتياطية محفوظة على السيرفر حتى الآن."
+        }), 404
+
+    try:
+        with open(LATEST_BACKUP_FILE, "r", encoding="utf-8") as f:
+            backup_data = json.load(f)
+
+        mtime = os.path.getmtime(LATEST_BACKUP_FILE)
+        mod_date = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+        return jsonify({
+            "success": True,
+            "lastModified": mod_date,
+            "backup": backup_data,
+            "message": f"تم جلب آخر نسخة احتياطية بنجاح (تاريخ: {mod_date})"
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": f"تعذر قراءة النسخة الاحتياطية: {str(e)}"}), 500
+
+
+@app.route("/api/backup/list", methods=["GET"])
+def list_server_backups_api():
+    """عرض قائمة النسخ الاحتياطية المتاحة على السيرفر"""
+    ensure_backups_dir()
+    backups = []
+    try:
+        for fname in sorted(os.listdir(BACKUPS_DIR), reverse=True):
+            if fname.startswith("backup_") and fname.endswith(".json"):
+                fpath = os.path.join(BACKUPS_DIR, fname)
+                mtime = os.path.getmtime(fpath)
+                size_kb = round(os.path.getsize(fpath) / 1024, 1)
+                backups.append({
+                    "filename": fname,
+                    "date": datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    "sizeKb": size_kb
+                })
+    except Exception:
+        pass
+    return jsonify({"success": True, "backups": backups})
+
+
+
 # ── كل الملفات الثابتة (CSS, JS, assets, ...) ───────────────────────
 @app.route("/<path:path>")
 def static_files(path):

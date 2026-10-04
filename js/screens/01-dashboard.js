@@ -550,7 +550,7 @@
         if (!ctx || !canvas) return;
         const dpr = window.devicePixelRatio || 1;
         const width = canvas.width / dpr;
-        const height = 230;
+        const height = canvas.height / dpr;
         ctx.clearRect(0, 0, width, height);
 
         const padLeft = 60;
@@ -842,11 +842,14 @@
             width = 800;
         }
 
+        const isMobile = width < 600;
+        const baseHeight = isMobile ? 260 : 230;
+
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.round(width * dpr);
-        canvas.height = Math.round(230 * dpr);
+        canvas.height = Math.round(baseHeight * dpr);
         canvas.style.width = '100%';
-        canvas.style.height = '230px';
+        canvas.style.height = `${baseHeight}px`;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return null;
@@ -859,13 +862,14 @@
         if (!ctx || !canvas) return;
         const dpr = window.devicePixelRatio || 1;
         const width = canvas.width / dpr;
-        const height = 230;
+        const height = canvas.height / dpr;
         ctx.clearRect(0, 0, width, height);
 
-        const padLeft = 55;
-        const padRight = 20;
-        const padTop = 30;
-        const padBottom = 35;
+        const isMobile = width < 600;
+        const padLeft = isMobile ? 48 : 55;
+        const padRight = 18;
+        const padTop = 32;
+        const padBottom = isMobile ? 58 : 38; // مساحة كافية للكتابة المائلة لأسماء الأشهر
         const chartW = Math.max(width - padLeft - padRight, 100);
         const chartH = height - padTop - padBottom;
 
@@ -926,20 +930,39 @@
                 }
             }
 
-            if (val > 0 && (!isCompact || val > maxVal * 0.15)) {
+            // رسم القيمة أعلى العمود مع تجنب تداخل الأرقام المتجاورة (Staggering)
+            if (val > 0 && (!isCompact || val > maxVal * 0.12)) {
                 ctx.fillStyle = '#1e1b4b';
-                ctx.font = 'bold 9.5px Tahoma, "Segoe UI", sans-serif';
+                ctx.font = isMobile ? 'bold 8.5px Tahoma, "Segoe UI", sans-serif' : 'bold 9.5px Tahoma, "Segoe UI", sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText(Math.round(val).toLocaleString('ar-EG'), x + barWidth / 2, y - 5);
+
+                // في حال كانت المسافة ضيقة، يتم تدرج الارتفاع لتفادي التصادم الأفقي بين رقمين متجاورين
+                const isClose = (step < 35);
+                const staggerY = (isClose && (idx % 2 === 1)) ? (y - 15) : (y - 5);
+                ctx.fillText(Math.round(val).toLocaleString('ar-EG'), x + barWidth / 2, staggerY);
             }
 
-            if (!isCompact || idx % 2 === 0 || barCount <= 16) {
-                ctx.fillStyle = '#64748b';
-                ctx.font = '10px Tahoma, "Segoe UI", sans-serif';
-                ctx.textAlign = 'center';
-                if (labels && labels[idx]) {
-                    ctx.fillText(labels[idx], x + barWidth / 2, height - padBottom + 16);
+            // كتابة التسمية (اسم الشهر أو الموظف) أسفل العمود بشكل مائل لعدم التداخل
+            if (labels && labels[idx]) {
+                const lblX = x + barWidth / 2;
+                const shouldRotate = isMobile || barCount >= 8;
+
+                ctx.save();
+                if (shouldRotate) {
+                    // جعل النص مائلاً بزاوية -45 درجة أسفل العمود ليكون واضحاً ومفصولاً تماماً على الموبايل
+                    ctx.translate(lblX, height - padBottom + 12);
+                    ctx.rotate(-45 * Math.PI / 180);
+                    ctx.textAlign = 'right';
+                    ctx.font = isMobile ? 'bold 9.5px Tahoma, "Segoe UI", sans-serif' : '10px Tahoma, "Segoe UI", sans-serif';
+                    ctx.fillStyle = '#475569';
+                    ctx.fillText(labels[idx], 0, 0);
+                } else {
+                    ctx.textAlign = 'center';
+                    ctx.font = '10px Tahoma, "Segoe UI", sans-serif';
+                    ctx.fillStyle = '#64748b';
+                    ctx.fillText(labels[idx], lblX, height - padBottom + 16);
                 }
+                ctx.restore();
             }
         });
     }

@@ -209,6 +209,7 @@
                     <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 6px; flex:1; justify-content:center; color:#dc2626; border-color:#fca5a5;" onclick="logoutAndLockSystem()" title="تسجيل الخروج وقفل المنظومة">🚪 خروج وقفل</button>
                     <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 6px; flex:1; justify-content:center;" onclick="openSwitchUserModal()" title="تبديل المستخدم الحالي">🔄 تبديل</button>
                 </div>
+                <button type="button" class="btn-secondary" style="font-size:11px; padding:4px 6px; width:100%; margin-top:5px; justify-content:center; color:var(--accent); border-color:#bae6fd; background:#f0f9ff;" onclick="openChangePasswordModal()" title="تغيير كلمة المرور الخاصة بي">🔑 تغيير كلمة المرور</button>
             </div>
             
             <div id="sidebar-cloud-status-indicator" style="display:flex; align-items:center; justify-content:center; gap:6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:5px 8px; margin-top:6px; cursor:pointer;" onclick="switchScreen('screen-firebase-settings', document.getElementById('nav-screen-firebase-settings'))" title="انقر لعرض وإعدادات سحابة Firebase">
@@ -1980,21 +1981,36 @@
                         <button type="button" class="btn-primary" style="justify-content:center; font-size:13px;" onclick="exportFullBackupJSON()">
                             💾 تحميل ملف النسخة الاحتياطية (.json)
                         </button>
+                        <button type="button" class="btn-secondary" style="justify-content:center; font-size:12px; background:#f0fdf4; border-color:#86efac; color:#166534;" onclick="saveBackupToServer(false)">
+                            ☁️ حفظ نسخة احتياطية على السيرفر الآن
+                        </button>
                         <button type="button" class="btn-secondary" style="justify-content:center; font-size:12px;" onclick="exportConsolidatedExcelBackup()">
                             📊 تصدير قاعدة البيانات كإكسيل شامل (.xls)
                         </button>
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; font-size:11.5px; text-align:center;">
+                            <div>🕒 <strong>النسخ التلقائي للسيرفر:</strong> يعمل كل 24 ساعة تلقائياً</div>
+                            <div id="server-backup-last-time" style="font-size:11px; margin-top:2px;"></div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- كارت الاستعادة -->
                 <div class="backup-card" style="border-top:4px solid var(--success);">
                     <div>
-                        <h3><span>🔄</span> استعادة نسخة احتياطية من ملف</h3>
-                        <p>استرجاع كافة بيانات المنظومة من ملف نسخة احتياطية سابق (.json). يمكنك معاينة بيانات الملف وفحص عدد الموظفين والسجلات قبل الموافقة على الاستعادة.</p>
+                        <h3><span>🔄</span> استعادة نسخة احتياطية من ملف أو من السيرفر</h3>
+                        <p>استرجاع كافة بيانات المنظومة من آخر نسخة محفوظة على السيرفر بضغطة زر واحدة، أو رفع ملف نسخة سابقة (.json) وفحصه قبل الاعتماد.</p>
 
-                        <div class="backup-drop-zone" onclick="document.getElementById('backup-file-input').click()" style="margin:16px 0;">
-                            <span style="font-size:28px;">📂</span>
-                            <div style="font-size:13px; font-weight:bold; color:var(--accent); margin-top:4px;">اضغط هنا لاختيار ملف النسخة الاحتياطية</div>
+                        <div style="margin:12px 0 16px 0; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:12px;">
+                            <div style="font-weight:bold; font-size:12.5px; color:#15803d; margin-bottom:6px;">⚡ استرجاع سريع من السيرفر الداخلي:</div>
+                            <button type="button" id="btn-server-restore-latest" class="btn-success" style="width:100%; justify-content:center; font-size:12.5px; font-weight:bold;" onclick="restoreLatestBackupFromServer()">
+                                🔄 استرجاع آخر نسخة احتياطية من السيرفر
+                            </button>
+                            <div style="font-size:11px; color:#166534; margin-top:5px; text-align:center;">يسترجع أحدث نسخة تم حفظها تلقائياً أو يدوياً على السيرفر</div>
+                        </div>
+
+                        <div class="backup-drop-zone" onclick="document.getElementById('backup-file-input').click()" style="margin:12px 0;">
+                            <span style="font-size:26px;">📂</span>
+                            <div style="font-size:12.5px; font-weight:bold; color:var(--accent); margin-top:4px;">أو اضغط لاختيار ملف نسخة احتياطية (.json)</div>
                             <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">يقبل ملفات النسخ بتنسيق JSON الصادرة من المنظومة</div>
                             <input type="file" id="backup-file-input" accept=".json" style="display:none;" onchange="onBackupFileSelected(this)">
                         </div>
@@ -2006,7 +2022,7 @@
                     </div>
                     <div>
                         <button type="button" id="btn-confirm-restore" class="btn-success" style="width:100%; justify-content:center; font-size:13px; opacity:0.5; pointer-events:none;" onclick="confirmAndExecuteRestore()">
-                            🔄 اعتماد واستعادة قاعدة البيانات الآن
+                            🔄 استعادة البيانات من الملف المختار أعلاه
                         </button>
                     </div>
                 </div>
@@ -2014,12 +2030,12 @@
                 <!-- كارت إعادة الضبط والحماية -->
                 <div class="backup-card" style="border-top:4px solid var(--danger);">
                     <div>
-                        <h3><span>🛡️</span> إدارة التطهير وضبط المصنع</h3>
-                        <p>أدوات الطوارئ لاستعادة بيانات العيادات الافتراضية (34 موظف) أو تصفير حركات الحضور المسجلة مع حماية أمنية مشددة تتطلب كلمة تأكيد.</p>
+                        <h3><span>🛡️</span> إدارة التطهير وتفريغ المنظومة</h3>
+                        <p>أدوات تصفير ومسح البيانات المسجلة بالكامل لتفريغ البرنامج تماماً، أو مسح الحركات فقط، مع حماية أمنية مشددة تتطلب كلمة تأكيد.</p>
 
                         <div style="margin:14px 0; display:flex; flex-direction:column; gap:8px;">
-                            <button type="button" class="btn-secondary" style="font-size:12px; justify-content:flex-start;" onclick="resetToInitialData()">
-                                🔁 استرجاع قاعدة بيانات الـ 34 موظف الأصلية
+                            <button type="button" class="btn-danger" style="font-size:12.5px; font-weight:bold; justify-content:center; background:#dc2626; color:#fff; border:none; padding:10px;" onclick="clearAllSystemDataCompletelyPrompt()">
+                                🗑️ مسح وتصفير كافة البيانات المسجلة بالكامل (البرنامج فارغ تماماً)
                             </button>
                             <button type="button" class="btn-warning" style="font-size:12px; justify-content:flex-start;" onclick="clearAttendanceOnlyPrompt()">
                                 ⏱️ مسح سجلات الحضور والانصراف فقط
@@ -2027,12 +2043,15 @@
                             <button type="button" class="btn-warning" style="font-size:12px; justify-content:flex-start;" onclick="clearAdjustmentsOnlyPrompt()">
                                 ⚖️ مسح معاملات تسويات الرواتب فقط
                             </button>
+                            <button type="button" class="btn-secondary" style="font-size:11.5px; justify-content:flex-start; color:#64748b;" onclick="factoryResetPrompt()">
+                                🔁 استرجاع قاعدة بيانات الـ 34 موظف التجريبية
+                            </button>
                         </div>
                     </div>
                     <div>
-                        <button type="button" class="btn-danger" style="width:100%; justify-content:center; font-size:12.5px; padding:8px;" onclick="factoryResetPrompt()">
-                            ⚠️ إعادة ضبط المصنع ومسح كافة البيانات
-                        </button>
+                        <div style="font-size:11px; color:#ef4444; text-align:center; padding:4px;">
+                            ⚠️ عمليات التصفير تتطلب كلمة تأكيد مشددة لمنع أي خطأ غير مقصود
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2914,6 +2933,53 @@
             <div style="display:flex; gap:10px;">
                 <button type="submit" class="btn-primary" style="flex:1; justify-content:center;">💾 تسجيل الحساب والدخول فوراً</button>
                 <button type="button" class="btn-secondary" onclick="closeEmployeeSelfRegisterModal()">إلغاء</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- نافذة تغيير كلمة المرور للمستخدم الحالي (Self Password Change Modal) -->
+<div id="modal-change-password" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.55); backdrop-filter:blur(6px); z-index:99999; align-items:center; justify-content:center;">
+    <div style="background:var(--surface); border:1.5px solid var(--accent); border-radius:14px; width:92%; max-width:440px; padding:24px; box-shadow:0 10px 35px rgba(0,0,0,0.6); direction:rtl;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:20px;">🔑</span>
+                <h3 style="color:var(--accent); font-size:16px; font-weight:800; margin:0;">تغيير كلمة المرور الشخصية</h3>
+            </div>
+            <button type="button" onclick="closeChangePasswordModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✖</button>
+        </div>
+        <p id="change-pwd-intro" style="font-size:12px; color:var(--text-muted); margin-bottom:14px; line-height:1.5;">يمكنك تعيين كلمة مرور جديدة لحسابك وستظهر محدثة تلقائياً لدى مدير النظام.</p>
+        
+        <form onsubmit="handleUserSelfChangePassword(event)">
+            <div class="field" style="margin-bottom:12px;">
+                <label style="font-weight:700; font-size:12px; display:block; margin-bottom:4px;">كلمة المرور الحالية *</label>
+                <div style="position:relative;">
+                    <input type="password" id="change-pwd-current" placeholder="أدخل كلمة المرور الحالية..." required style="width:100%; padding:9px 12px 9px 36px; border-radius:8px; border:1.5px solid var(--border); font-family:inherit;">
+                    <button type="button" onclick="togglePasswordVisibility('change-pwd-current', this)" style="position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:14px; color:var(--text-muted);">👁️</button>
+                </div>
+            </div>
+            
+            <div class="field" style="margin-bottom:12px;">
+                <label style="font-weight:700; font-size:12px; display:block; margin-bottom:4px;">كلمة المرور الجديدة *</label>
+                <div style="position:relative;">
+                    <input type="password" id="change-pwd-new" placeholder="أدخل كلمة المرور الجديدة..." required style="width:100%; padding:9px 12px 9px 36px; border-radius:8px; border:1.5px solid var(--border); font-family:inherit;">
+                    <button type="button" onclick="togglePasswordVisibility('change-pwd-new', this)" style="position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:14px; color:var(--text-muted);">👁️</button>
+                </div>
+            </div>
+
+            <div class="field" style="margin-bottom:16px;">
+                <label style="font-weight:700; font-size:12px; display:block; margin-bottom:4px;">تأكيد كلمة المرور الجديدة *</label>
+                <div style="position:relative;">
+                    <input type="password" id="change-pwd-confirm" placeholder="أعد إدخال كلمة المرور الجديدة..." required style="width:100%; padding:9px 12px 9px 36px; border-radius:8px; border:1.5px solid var(--border); font-family:inherit;">
+                    <button type="button" onclick="togglePasswordVisibility('change-pwd-confirm', this)" style="position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:14px; color:var(--text-muted);">👁️</button>
+                </div>
+            </div>
+
+            <div id="change-pwd-error" style="color:#ef4444; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px 12px; font-size:12px; font-weight:bold; margin-bottom:12px; display:none;"></div>
+
+            <div style="display:flex; gap:10px;">
+                <button type="submit" class="btn-primary" style="flex:1; justify-content:center; padding:10px; font-weight:bold;">💾 حفظ وتحديث كلمة المرور</button>
+                <button type="button" class="btn-secondary" onclick="closeChangePasswordModal()">إلغاء</button>
             </div>
         </form>
     </div>
