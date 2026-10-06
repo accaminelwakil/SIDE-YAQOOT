@@ -1,13 +1,19 @@
 /**
  * منظومة عيادات سيدي ياقوت التخصصية
  * شاشة البداية والتحميل الترحيبية (Splash Screen)
- * مدة العرض: 4 ثوانٍ مع أنيميشن عبور واستقرار السلوجن "365 يوم من الرعاية"
+ * محسنة وفائقة السرعة: انطلاق سلس وسريع مع استقرار السلوجن "365 يوم من الرعاية"
  */
 
 (function() {
     let splashDismissed = false;
     let splashTimer = null;
-    let progressInterval = null;
+    let stepTimers = [];
+
+    function clearAllSplashTimers() {
+        if (splashTimer) clearTimeout(splashTimer);
+        stepTimers.forEach(t => clearTimeout(t));
+        stepTimers = [];
+    }
 
     function initSplashScreen() {
         const splashEl = document.getElementById('clinic-splash-screen');
@@ -16,36 +22,36 @@
         const progressBar = document.getElementById('splash-progress-bar');
         const statusText = document.getElementById('splash-status-text');
 
-        const totalDuration = 4000; // 4 ثوانٍ بالضبط كما طلب المستخدم
-        const startTime = Date.now();
+        clearAllSplashTimers();
 
-        // تحديث شريط التقدم وحالة التحميل بشكل سلس وديناميكي
-        progressInterval = setInterval(() => {
-            const elapsed = Date.now() - startTime;
-            const progress = Math.min(100, Math.floor((elapsed / totalDuration) * 100));
+        // تفعيل التقدم السلس عبر CSS دون تعطيل خيط المعالجة الرئيسي
+        if (progressBar) {
+            progressBar.style.width = '0%';
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    progressBar.style.width = '100%';
+                });
+            });
+        }
 
-            if (progressBar) {
-                progressBar.style.width = progress + '%';
-            }
-
-            if (statusText) {
-                if (elapsed < 1400) {
-                    statusText.innerHTML = '<span class="splash-status-dot"></span> جاري تهيئة منظومة سيدي ياقوت...';
-                } else if (elapsed < 2600) {
+        if (statusText) {
+            statusText.innerHTML = '<span class="splash-status-dot"></span> جاري تهيئة منظومة سيدي ياقوت...';
+            
+            stepTimers.push(setTimeout(() => {
+                if (statusText && !splashDismissed) {
                     statusText.innerHTML = '<span class="splash-status-dot"></span> 365 يوم من الرعاية الطبية المتكاملة';
-                } else if (elapsed < 3600) {
-                    statusText.innerHTML = '<span class="splash-status-dot"></span> تحميل بيانات الرواتب والسراكي...';
-                } else {
+                }
+            }, 450));
+
+            stepTimers.push(setTimeout(() => {
+                if (statusText && !splashDismissed) {
                     statusText.innerHTML = '<span class="splash-status-dot" style="background:#059669;"></span> ✓ اكتمل التحميل - أهلاً بكم!';
                 }
-            }
+            }, 900));
+        }
 
-            if (elapsed >= totalDuration) {
-                clearInterval(progressInterval);
-            }
-        }, 30);
-
-        // إغلاق شاشة التحميل تلقائياً بعد 4 ثوانٍ تماماً
+        // إغلاق شاشة البداية فور انتهاء التحميل بسلاسة وسرعة فائقة
+        const totalDuration = 1100;
         splashTimer = setTimeout(() => {
             dismissSplashScreen(false);
         }, totalDuration);
@@ -55,27 +61,23 @@
         if (splashDismissed) return;
         splashDismissed = true;
 
-        if (progressInterval) clearInterval(progressInterval);
-        if (splashTimer) clearTimeout(splashTimer);
+        clearAllSplashTimers();
 
         const splashEl = document.getElementById('clinic-splash-screen');
         if (!splashEl) return;
 
-        // تأثير الاختفاء والتلاشي السلس
+        // تلاشي ناعم وسريع
         splashEl.classList.add('splash-hidden');
 
         setTimeout(() => {
             splashEl.style.display = 'none';
-            if (typeof renderWelcomeDashboard === 'function') {
-                renderWelcomeDashboard();
-            }
             if (typeof checkAuthAndRequireLogin === 'function') {
                 checkAuthAndRequireLogin();
             }
-        }, 650);
+        }, 350);
     }
 
-    // إتاحة إعادة مشاهدة الأنيميشن في أي وقت بناءً على رغبة المستخدم
+    // إتاحة إعادة تشغيل الشاشة الترحيبية من الإعدادات أو عند الطلب
     function replaySplashScreen() {
         const splashEl = document.getElementById('clinic-splash-screen');
         if (!splashEl) return;
@@ -84,17 +86,20 @@
         splashEl.style.display = 'flex';
         splashEl.classList.remove('splash-hidden');
 
-        // إعادة تشغيل الأنيميشن للعناصر
+        const progressBar = document.getElementById('splash-progress-bar');
+        if (progressBar) progressBar.style.width = '0%';
+
+        // إعادة تشغيل حركات العناصر
         const sloganBox = document.getElementById('splash-slogan-element');
         const logoBox = document.getElementById('splash-logo-box');
         if (sloganBox) {
             sloganBox.style.animation = 'none';
-            void sloganBox.offsetWidth; // Force Reflow
+            void sloganBox.offsetWidth;
             sloganBox.style.animation = '';
         }
         if (logoBox) {
             logoBox.style.animation = 'none';
-            void logoBox.offsetWidth; // Force Reflow
+            void logoBox.offsetWidth;
             logoBox.style.animation = '';
         }
 

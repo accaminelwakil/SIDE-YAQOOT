@@ -127,7 +127,10 @@
             });
         }
 
-        renderBulkEmployeePayslips();
+        const bulkScreen = document.getElementById('screen-bulk-payslips');
+        if (bulkScreen && bulkScreen.classList.contains('active')) {
+            renderBulkEmployeePayslips();
+        }
     }
 
     function getEligibleEmployeesForBulkPayslips(fromDate, toDate, deptFilter) {
@@ -201,7 +204,11 @@
 
         const basicWage = Math.round((totBasicHours * (rates.hourlyRate || 0)) * 100) / 100;
         const dailyBasicRate = Math.round((baseMonthlySalary / 30.0) * 100) / 100;
-        const offDaysCount = typeof calculateOffDaysCountBetweenDates === 'function' ? calculateOffDaysCountBetweenDates(fromDate, toDate, emp.offDay, emp) : 0;
+        let attendedDaysForOff = emp;
+        if (bulkPayslipsSourceMode !== 'punch' && Array.isArray(empRecords)) {
+            attendedDaysForOff = empRecords.filter(r => (Number(r.hours) > 0 || r.timeIn)).length;
+        }
+        const offDaysCount = typeof calculateOffDaysCountBetweenDates === 'function' ? calculateOffDaysCountBetweenDates(fromDate, toDate, emp.offDay, attendedDaysForOff) : 0;
         const offDaysWage = Math.round((offDaysCount * dailyBasicRate) * 100) / 100;
         const ov1Wage = Math.round((totOv1Hours * (rates.ov1 || 0)) * 100) / 100;
         const ov2Wage = Math.round((totOv2Hours * (rates.ov2 || 0)) * 100) / 100;

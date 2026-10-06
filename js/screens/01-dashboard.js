@@ -7,7 +7,6 @@
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
-        const yearMonthPrefix = `${currentYear}-${currentMonth}`;
 
         const activeEmployees = (typeof employees !== 'undefined' && Array.isArray(employees))
             ? employees.filter(e => e && e.status !== 'انتهت خدمته')
@@ -22,28 +21,65 @@
             ? attendanceRecords
             : [];
 
+        // فهرسة سريعة لسجلات الحضور O(N) بالموظف وبالتاريخ لتجنب آلاف التكرارات
+        const attByEmp = new Map();
+        const attByDate = new Map();
+        for (let i = 0; i < allAtt.length; i++) {
+            const r = allAtt[i];
+            if (!r) continue;
+            if (r.empId) {
+                let eList = attByEmp.get(r.empId);
+                if (!eList) {
+                    eList = [];
+                    attByEmp.set(r.empId, eList);
+                }
+                eList.push(r);
+            }
+            if (r.date) {
+                const dClean = String(r.date).trim().replace(/\//g, '-');
+                let dList = attByDate.get(dClean);
+                if (!dList) {
+                    dList = [];
+                    attByDate.set(dClean, dList);
+                }
+                dList.push(r);
+            }
+        }
+
         // حساب رواتب دورة الراتب الحالية للعيادات (25 إلى 24)
         const curPeriod = getSalaryPeriodInfo(0);
+        const curCycleKey = `${curPeriod.startStr}_${curPeriod.endStr}`;
         let periodSalary = 0;
+        const currentPeriodEmpNets = new Map();
 
         if (typeof calculateEmployeePayslipData === 'function') {
             activeEmployees.forEach(emp => {
-                const pData = calculateEmployeePayslipData(emp, curPeriod.startStr, curPeriod.endStr);
-                periodSalary += (pData.finalNet || 0);
+                const empAtt = attByEmp.get(emp.id);
+                const hasCurrentAtt = empAtt && empAtt.some(r => r && r.date >= curPeriod.startStr && r.date <= curPeriod.endStr);
+                const hasAdj = (typeof salaryAdjustmentsDb !== 'undefined' && salaryAdjustmentsDb && salaryAdjustmentsDb[`${curCycleKey}_${emp.id}`]);
+                
+                if (hasCurrentAtt || hasAdj) {
+                    const pData = calculateEmployeePayslipData(emp, curPeriod.startStr, curPeriod.endStr);
+                    const net = pData.finalNet || 0;
+                    currentPeriodEmpNets.set(emp.id, net);
+                    periodSalary += net;
+                }
             });
         } else {
-            const periodRecords = allAtt.filter(r => {
-                if (!r || !r.date) return false;
-                const d = String(r.date).trim().replace(/\//g, '-');
-                return d >= curPeriod.startStr && d <= curPeriod.endStr;
-            });
-            periodSalary = periodRecords.reduce((sum, r) => {
-                const w = parseFloat(r.wage);
-                if (!isNaN(w) && isFinite(w) && w > 0) return sum + w;
-                const hrs = parseFloat(r.hours) || 0;
-                const rt = parseFloat(r.rate) || 0;
-                return sum + (hrs * rt);
-            }, 0);
+            for (let d = 0; d < curPeriod.days.length; d++) {
+                const dayKey = curPeriod.days[d].dateKey;
+                const dayRecs = attByDate.get(dayKey) || [];
+                dayRecs.forEach(r => {
+                    const w = parseFloat(r.wage);
+                    if (!isNaN(w) && isFinite(w) && w > 0) {
+                        periodSalary += w;
+                    } else {
+                        const hrs = parseFloat(r.hours) || 0;
+                        const rt = parseFloat(r.rate) || 0;
+                        periodSalary += (hrs * rt);
+                    }
+                });
+            }
         }
 
         const monthSalEl = document.getElementById('dash-month-salary');
@@ -111,10 +147,29 @@
         let yearPaid = 0;
 
         if (registeredCycles.size > 0 && typeof calculateEmployeePayslipData === 'function') {
-            registeredCycles.forEach(cycle => {
+            registeredCycles.forEach((cycle, cycleKey) => {
+                const isCurCycle = (cycleKey === curCycleKey);
+
                 activeEmployees.forEach(emp => {
-                    const pData = calculateEmployeePayslipData(emp, cycle.start, cycle.end);
-                    const net = pData.finalNet || 0;
+                    let net = 0;
+                    if (isCurCycle && currentPeriodEmpNets.has(emp.id)) {
+                        net = currentPeriodEmpNets.get(emp.id);
+                    } else {
+                        const empAtt = attByEmp.get(emp.id);
+                        const hasEmpAtt = empAtt && empAtt.some(r => r && r.date >= cycle.start && r.date <= cycle.end);
+                        const hasAdj = (typeof salaryAdjustmentsDb !== 'undefined' && salaryAdjustmentsDb && salaryAdjustmentsDb[`${cycleKey}_${emp.id}`]);
+                        const delivKey = `${cycle.start}_${cycle.end}_${emp.id}`;
+                        const delivRec = (typeof payrollDeliveryDb !== 'undefined' && payrollDeliveryDb) ? payrollDeliveryDb[delivKey] : null;
+
+                        // تخطي فوري في O(1) للموظفين غير المشاركين في هذه الدورة
+                        if (!hasEmpAtt && !hasAdj && !delivRec) {
+                            return;
+                        }
+
+                        const pData = calculateEmployeePayslipData(emp, cycle.start, cycle.end);
+                        net = pData.finalNet || 0;
+                    }
+
                     yearSalary += net;
 
                     // احتساب المسدد والمنصرف فعلياً عن تلك الدورة
@@ -124,17 +179,19 @@
                         const amt = Number(delivRec.amount) || ((typeof settleSalaryAmount === 'function') ? settleSalaryAmount(net) : net);
                         yearPaid += amt;
                     } else {
-                        // التحقق من سجلات الحضور المسددة
-                        const empPeriodRecs = allAtt.filter(r => r && r.empId === emp.id && r.date >= cycle.start && r.date <= cycle.end);
-                        if (empPeriodRecs.length > 0 && empPeriodRecs.every(r => r.isPaid)) {
-                            const amt = (typeof settleSalaryAmount === 'function') ? settleSalaryAmount(net) : net;
-                            yearPaid += amt;
+                        const empAtt = attByEmp.get(emp.id);
+                        if (empAtt) {
+                            const empPeriodRecs = empAtt.filter(r => r && r.date >= cycle.start && r.date <= cycle.end);
+                            if (empPeriodRecs.length > 0 && empPeriodRecs.every(r => r.isPaid)) {
+                                const amt = (typeof settleSalaryAmount === 'function') ? settleSalaryAmount(net) : net;
+                                yearPaid += amt;
+                            }
                         }
                     }
                 });
             });
         } else {
-            // كود بديل في حالة عدم وجود أي دورات مسجلة بعد
+            // كود بديل سريع في حالة عدم وجود أي دورات مسجلة بعد
             const currentYearRecords = allAtt.filter(r => {
                 if (!r || !r.date) return false;
                 const d = String(r.date).trim().replace(/\//g, '-');
@@ -193,22 +250,24 @@
             }
         }
 
-        // رسم المخططات فوراً ثم في requestAnimationFrame لضمان استقرار أبعاد الحاويات
-        drawAllDashboardCharts(currentYear, now.getMonth() + 1);
+        // رسم المخططات لمرة واحدة بسلاسة تامة دون ازدواجية أو تعليق
+        const helpers = { attByDate, attByEmp };
         if (typeof requestAnimationFrame === 'function') {
             requestAnimationFrame(() => {
-                drawAllDashboardCharts(currentYear, now.getMonth() + 1);
+                drawAllDashboardCharts(currentYear, now.getMonth() + 1, helpers);
             });
+        } else {
+            drawAllDashboardCharts(currentYear, now.getMonth() + 1, helpers);
         }
     }
 
-    function drawAllDashboardCharts(year, month) {
+    function drawAllDashboardCharts(year, month, helpers) {
         // 1. الرسم البياني الأول: مقارنة رواتب الموظفين خلال فترة الراتب (25 إلى 24)
-        drawChartDaysOfSalaryPeriod();
+        drawChartDaysOfSalaryPeriod(helpers);
         // 2. الرسم البياني الثاني: مقارنة الفترات وتكلفة الرواتب
-        renderSalaryComparisonChart(year);
+        renderSalaryComparisonChart(year, helpers);
         // 3. الرسم البياني الثالث: مقارنة عدد الموظفين النشطين شهرياً
-        drawChartEmployeesByMonth(year);
+        drawChartEmployeesByMonth(year, helpers);
     }
 
     function switchSalaryChartMode(mode) {
@@ -237,12 +296,12 @@
         renderSalaryComparisonChart(now.getFullYear());
     }
 
-    function renderSalaryComparisonChart(year) {
+    function renderSalaryComparisonChart(year, helpers) {
         const curY = year || new Date().getFullYear();
         if (currentSalaryChartMode === 'employees') {
             drawChartEmployeesSalaryComparison();
         } else {
-            drawChartMonthsOfYear(curY);
+            drawChartMonthsOfYear(curY, helpers);
         }
     }
 
@@ -270,7 +329,7 @@
         drawBarChart(ctx, canvas, labels, data, '#059669', 'ج.م', displayEmps.length > 10);
     }
 
-    function drawChartEmployeesByMonth(year) {
+    function drawChartEmployeesByMonth(year, helpers) {
         const canvas = document.getElementById('chart-employees-month');
         if (!canvas) return;
         const ctx = prepareCanvas(canvas);
@@ -282,19 +341,25 @@
             : 0;
         const curM = new Date().getMonth() + 1;
 
-        const data = [];
-        for (let m = 1; m <= 12; m++) {
-            const mPrefix = `${year}-${String(m).padStart(2, '0')}`;
-            const empsInMonth = new Set();
-            allAtt.forEach(r => {
-                if (r && r.date) {
-                    const d = String(r.date).trim().replace(/\//g, '-');
-                    if (d.startsWith(mPrefix)) {
-                        empsInMonth.add(r.empId);
+        // تجميع سريع في مسار واحد O(N) بدلاً من فحص المصفوفة 12 مرة
+        const empsByMonth = Array.from({ length: 13 }, () => new Set());
+        const yearPrefix = `${year}-`;
+        for (let i = 0; i < allAtt.length; i++) {
+            const r = allAtt[i];
+            if (r && r.date && r.empId) {
+                const d = String(r.date).trim().replace(/\//g, '-');
+                if (d.startsWith(yearPrefix)) {
+                    const m = parseInt(d.substring(5, 7), 10);
+                    if (m >= 1 && m <= 12) {
+                        empsByMonth[m].add(r.empId);
                     }
                 }
-            });
-            const count = empsInMonth.size > 0 ? empsInMonth.size : (m === curM ? activeEmpsCount : 0);
+            }
+        }
+
+        const data = [];
+        for (let m = 1; m <= 12; m++) {
+            const count = empsByMonth[m].size > 0 ? empsByMonth[m].size : (m === curM ? activeEmpsCount : 0);
             data.push(count);
         }
 
@@ -451,7 +516,7 @@
     }
 
     // رسم مقارنة رواتب الموظفين خلال فترة الراتب (من 25 إلى 24)
-    function drawChartDaysOfSalaryPeriod() {
+    function drawChartDaysOfSalaryPeriod(helpers) {
         const canvas = document.getElementById('chart-current-month-days');
         if (!canvas) return;
         const ctx = prepareCanvas(canvas);
@@ -461,6 +526,23 @@
         syncSalaryPeriodControls(periodInfo);
 
         const allAtt = (typeof attendanceRecords !== 'undefined' && Array.isArray(attendanceRecords)) ? attendanceRecords : [];
+
+        // استخدام الفهرسة السريعة O(1) لتسريع رسم 31 يوماً
+        let dateLookup = (helpers && helpers.attByDate) ? helpers.attByDate : null;
+        if (!dateLookup) {
+            dateLookup = new Map();
+            for (let i = 0; i < allAtt.length; i++) {
+                const r = allAtt[i];
+                if (!r || !r.date) continue;
+                const dClean = String(r.date).trim().replace(/\//g, '-');
+                let list = dateLookup.get(dClean);
+                if (!list) {
+                    list = [];
+                    dateLookup.set(dClean, list);
+                }
+                list.push(r);
+            }
+        }
 
         const labels = [];
         const data = [];
@@ -472,19 +554,20 @@
         let maxWageDay = null;
 
         periodInfo.days.forEach(dayItem => {
-            const dayRecords = allAtt.filter(r => {
-                if (!r || !r.date) return false;
-                const dClean = String(r.date).trim().replace(/\//g, '-');
-                return dClean === dayItem.dateKey;
-            });
+            const dayRecords = dateLookup.get(dayItem.dateKey) || [];
 
-            const dayWage = dayRecords.reduce((sum, r) => {
+            let dayWage = 0;
+            for (let i = 0; i < dayRecords.length; i++) {
+                const r = dayRecords[i];
                 const w = parseFloat(r.wage);
-                if (!isNaN(w) && isFinite(w) && w > 0) return sum + w;
-                const hrs = parseFloat(r.hours) || 0;
-                const rt = parseFloat(r.rate) || 0;
-                return sum + (hrs * rt);
-            }, 0);
+                if (!isNaN(w) && isFinite(w) && w > 0) {
+                    dayWage += w;
+                } else {
+                    const hrs = parseFloat(r.hours) || 0;
+                    const rt = parseFloat(r.rate) || 0;
+                    dayWage += (hrs * rt);
+                }
+            }
 
             const roundedWage = Math.round(dayWage * 100) / 100;
             data.push(roundedWage);
@@ -751,7 +834,7 @@
     }
 
     // مقارنة فترات العام (25 إلى 24) مع التوافق الشامل
-    function drawChartMonthsOfYear(year) {
+    function drawChartMonthsOfYear(year, helpers) {
         const canvas = document.getElementById('chart-year-months');
         if (!canvas) return;
         const ctx = prepareCanvas(canvas);
@@ -766,7 +849,7 @@
             ? employees.filter(e => e && e.status !== 'انتهت خدمته').reduce((sum, e) => sum + (parseFloat(e.basicSalary) || 0), 0)
             : 0;
 
-        const data = [];
+        const cycleRanges = [];
         for (let m = 1; m <= 12; m++) {
             let prevM = m - 1;
             let prevY = year;
@@ -774,48 +857,44 @@
                 prevM = 12;
                 prevY = year - 1;
             }
-            const cycleStart = `${prevY}-${String(prevM).padStart(2, '0')}-25`;
-            const cycleEnd = `${year}-${String(m).padStart(2, '0')}-24`;
+            cycleRanges.push({
+                m: m,
+                cycleStart: `${prevY}-${String(prevM).padStart(2, '0')}-25`,
+                cycleEnd: `${year}-${String(m).padStart(2, '0')}-24`,
+                mPrefix: `${year}-${String(m).padStart(2, '0')}`,
+                salary: 0,
+                prefixSalary: 0
+            });
+        }
 
-            let mSalary = allAtt
-                .filter(r => {
-                    if (!r || !r.date) return false;
-                    const dClean = String(r.date).trim().replace(/\//g, '-');
-                    return (dClean >= cycleStart && dClean <= cycleEnd);
-                })
-                .reduce((sum, r) => {
-                    const w = parseFloat(r.wage);
-                    if (!isNaN(w) && isFinite(w) && w > 0) return sum + w;
-                    const hrs = parseFloat(r.hours) || 0;
-                    const rt = parseFloat(r.rate) || 0;
-                    return sum + (hrs * rt);
-                }, 0);
+        // مسار سريع واحد O(N) لحساب جميع الشهور الـ 12 دفعة واحدة
+        for (let i = 0; i < allAtt.length; i++) {
+            const r = allAtt[i];
+            if (!r || !r.date) continue;
+            const dClean = String(r.date).trim().replace(/\//g, '-');
+            const w = parseFloat(r.wage);
+            const val = (!isNaN(w) && isFinite(w) && w > 0) ? w : ((parseFloat(r.hours) || 0) * (parseFloat(r.rate) || 0));
+            if (val <= 0) continue;
 
-            // في حال عدم وجود سجلات بالنطاق الدقيق، يتم فحص الترقيم الشهري القديم لضمان التوافق
-            if (mSalary === 0) {
-                const mPrefix = `${year}-${String(m).padStart(2, '0')}`;
-                mSalary = allAtt
-                    .filter(r => {
-                        if (!r || !r.date) return false;
-                        const dClean = String(r.date).trim().replace(/\//g, '-');
-                        return dClean.startsWith(mPrefix);
-                    })
-                    .reduce((sum, r) => {
-                        const w = parseFloat(r.wage);
-                        if (!isNaN(w) && isFinite(w) && w > 0) return sum + w;
-                        const hrs = parseFloat(r.hours) || 0;
-                        const rt = parseFloat(r.rate) || 0;
-                        return sum + (hrs * rt);
-                    }, 0);
+            for (let c = 0; c < 12; c++) {
+                const cr = cycleRanges[c];
+                if (dClean >= cr.cycleStart && dClean <= cr.cycleEnd) {
+                    cr.salary += val;
+                }
+                if (dClean.startsWith(cr.mPrefix)) {
+                    cr.prefixSalary += val;
+                }
             }
+        }
 
-            // في حال عدم تسجيل شيفتات بعد في الدورة الحالية، يتم عرض إجمالي الرواتب الأساسية المقررة كتقدير واقعي
-            if (mSalary === 0 && year === curY && m === curM && allAtt.length === 0) {
+        const data = cycleRanges.map(cr => {
+            let mSalary = cr.salary;
+            if (mSalary === 0) mSalary = cr.prefixSalary;
+            if (mSalary === 0 && year === curY && cr.m === curM && allAtt.length === 0) {
                 mSalary = activeBasicTotal;
             }
-
-            data.push(Math.round(mSalary * 100) / 100);
-        }
+            return Math.round(mSalary * 100) / 100;
+        });
 
         const labels = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
         drawBarChart(ctx, canvas, labels, data, '#7c3aed', 'ج.م');
