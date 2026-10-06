@@ -71,6 +71,9 @@
 
         setTimeout(() => {
             splashEl.style.display = 'none';
+            if (typeof renderWelcomeDashboard === 'function') {
+                renderWelcomeDashboard();
+            }
             if (typeof checkAuthAndRequireLogin === 'function') {
                 checkAuthAndRequireLogin();
             }
