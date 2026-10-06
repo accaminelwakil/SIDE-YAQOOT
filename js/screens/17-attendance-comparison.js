@@ -338,17 +338,17 @@
             if (emptyHint) emptyHint.style.display = 'none';
 
             table.querySelector('thead').innerHTML = `
-                <tr style="background:#102a45; color:#fff; position:sticky; top:0; z-index:2;">
-                    <th style="padding:9px 7px; text-align:right;">اسم الموظف</th>
-                    <th style="padding:9px 7px;">القسم</th>
-                    <th style="padding:9px 7px;">التاريخ</th>
-                    <th style="padding:9px 7px; background:#1e3a8a;">أول دخول</th>
-                    <th style="padding:9px 7px; background:#1e3a8a;">آخر خروج</th>
-                    <th style="padding:9px 7px; font-weight:900; background:#0f172a;">إجمالي الساعات</th>
-                    <th style="padding:9px 7px; background:#065f46;">الساعات الأساسية</th>
-                    <th style="padding:9px 7px; background:#7c2d12;">ساعات الإضافي</th>
-                    <th style="padding:9px 7px;">طريقة التسجيل</th>
-                    <th style="padding:9px 7px;">الحالة والملاحظات</th>
+                <tr style="background:#ffffff; color:#1e293b; position:sticky; top:0; z-index:2; border-bottom:2px solid #cbd5e1; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                    <th style="padding:10px 8px; text-align:right; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">اسم الموظف</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">القسم</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">التاريخ</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">أول دخول</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">آخر خروج</th>
+                    <th style="padding:10px 8px; font-weight:900; background:#ffffff; color:#0f172a; border:1px solid #e2e8f0;">إجمالي الساعات</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">الساعات الأساسية</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">ساعات الإضافي</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">طريقة التسجيل</th>
+                    <th style="padding:10px 8px; background:#ffffff; color:#1e293b; font-weight:800; border:1px solid #e2e8f0;">الحالة والملاحظات</th>
                 </tr>
             `;
 
@@ -391,24 +391,24 @@
             if (emptyHint) emptyHint.style.display = 'none';
 
             table.querySelector('thead').innerHTML = `
-                <tr style="background:#0f172a; color:#fff; position:sticky; top:0; z-index:2;">
-                    <th colspan="3" style="background:#1e293b; padding:8px;">بيانات الموظف والشيفت</th>
-                    <th colspan="3" style="background:#065f46; padding:8px;">📱 بيانات بصمة الموبايل الذكية (GPS)</th>
-                    <th colspan="3" style="background:#1e3a8a; padding:8px;">⏱️ بيانات الإدخال اليدوي المعتمد</th>
-                    <th colspan="2" style="background:#831843; padding:8px;">⚖️ نتائج التدقيق والفرق</th>
+                <tr style="background:#ffffff; color:#1e293b; position:sticky; top:0; z-index:2; border-bottom:1px solid #cbd5e1;">
+                    <th colspan="3" style="background:#ffffff; color:#1e293b; padding:8px; font-weight:800; border:1px solid #e2e8f0;">بيانات الموظف والشيفت</th>
+                    <th colspan="3" style="background:#ffffff; color:#047857; padding:8px; font-weight:800; border:1px solid #e2e8f0;">📱 بيانات بصمة الموبايل الذكية (GPS)</th>
+                    <th colspan="3" style="background:#ffffff; color:#1d4ed8; padding:8px; font-weight:800; border:1px solid #e2e8f0;">⏱️ بيانات الإدخال اليدوي المعتمد</th>
+                    <th colspan="2" style="background:#ffffff; color:#831843; padding:8px; font-weight:800; border:1px solid #e2e8f0;">⚖️ نتائج التدقيق والفرق</th>
                 </tr>
-                <tr style="background:#f1f5f9; position:sticky; top:35px; z-index:2; font-size:11.5px;">
-                    <th style="padding:8px 6px;">التاريخ</th>
-                    <th style="padding:8px 6px; text-align:right;">الموظف</th>
-                    <th style="padding:8px 6px;">القسم</th>
-                    <th style="padding:8px 6px; color:#047857;">حضور GPS</th>
-                    <th style="padding:8px 6px; color:#047857;">انصراف GPS</th>
-                    <th style="padding:8px 6px; color:#047857; font-weight:bold;">ساعات GPS</th>
-                    <th style="padding:8px 6px; color:#1d4ed8;">حضور يدوي</th>
-                    <th style="padding:8px 6px; color:#1d4ed8;">انصراف يدوي</th>
-                    <th style="padding:8px 6px; color:#1d4ed8; font-weight:bold;">ساعات يدوي</th>
-                    <th style="padding:8px 6px;">فرق الساعات</th>
-                    <th style="padding:8px 6px;">حالة المطابقة</th>
+                <tr style="background:#ffffff; color:#334155; position:sticky; top:35px; z-index:2; font-size:11.5px; border-bottom:2px solid #cbd5e1;">
+                    <th style="padding:8px 6px; background:#ffffff; color:#1e293b; font-weight:700; border:1px solid #e2e8f0;">التاريخ</th>
+                    <th style="padding:8px 6px; text-align:right; background:#ffffff; color:#1e293b; font-weight:700; border:1px solid #e2e8f0;">الموظف</th>
+                    <th style="padding:8px 6px; background:#ffffff; color:#1e293b; font-weight:700; border:1px solid #e2e8f0;">القسم</th>
+                    <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور GPS</th>
+                    <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف GPS</th>
+                    <th style="padding:8px 6px; color:#047857; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات GPS</th>
+                    <th style="padding:8px 6px; color:#1d4ed8; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور يدوي</th>
+                    <th style="padding:8px 6px; color:#1d4ed8; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف يدوي</th>
+                    <th style="padding:8px 6px; color:#1d4ed8; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات يدوي</th>
+                    <th style="padding:8px 6px; background:#ffffff; color:#1e293b; border:1px solid #e2e8f0; font-weight:700;">فرق الساعات</th>
+                    <th style="padding:8px 6px; background:#ffffff; color:#1e293b; border:1px solid #e2e8f0; font-weight:700;">حالة المطابقة</th>
                 </tr>
             `;
 
