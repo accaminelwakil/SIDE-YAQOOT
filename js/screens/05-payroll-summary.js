@@ -1,8 +1,49 @@
 // ==================== 2.2 شاشة إجمالي رواتب الموظفين (25 إلى 24 مع تفاصيل الإضافي والتسويات) ====================
 
     let payrollSummaryHistoryStack = [];
-
     let savedPayrollSummaryCycles = JSON.parse(localStorage.getItem('erp_saved_payroll_cycles_db') || '{}');
+    let payrollCalculationMode = localStorage.getItem('erp_payroll_calc_mode') || 'manual'; // 'manual' (الافتراضي) or 'punch'
+
+    function setPayrollSummaryCalcMode(mode) {
+        payrollCalculationMode = (mode === 'punch') ? 'punch' : 'manual';
+        try { localStorage.setItem('erp_payroll_calc_mode', payrollCalculationMode); } catch(e){}
+
+        const btnManual = document.getElementById('btn-psummary-mode-manual');
+        const btnPunch = document.getElementById('btn-psummary-mode-punch');
+        const sourceLabel = document.getElementById('psummary-source-label');
+        const statusStrip = document.getElementById('psummary-source-status-strip');
+
+        if (btnManual && btnPunch) {
+            if (payrollCalculationMode === 'manual') {
+                btnManual.classList.add('active');
+                btnPunch.classList.remove('active');
+            } else {
+                btnPunch.classList.add('active');
+                btnManual.classList.remove('active');
+            }
+        }
+
+        if (sourceLabel) {
+            if (payrollCalculationMode === 'manual') {
+                sourceLabel.textContent = '[ ✍️ التسجيل اليدوي لشاشة الحضور والانصراف (الأساسي والافتراضي) ]';
+                sourceLabel.style.color = '#15803d';
+                if (statusStrip) {
+                    statusStrip.style.background = '#f0fdf4';
+                    statusStrip.style.borderColor = '#86efac';
+                }
+            } else {
+                sourceLabel.textContent = '[ 📱 التسجيل الذكي / بيانات البصمة الفعلية (اختياري) ]';
+                sourceLabel.style.color = '#1d4ed8';
+                if (statusStrip) {
+                    statusStrip.style.background = '#eff6ff';
+                    statusStrip.style.borderColor = '#93c5fd';
+                }
+            }
+        }
+
+        renderPayrollSummaryTable();
+    }
+    window.setPayrollSummaryCalcMode = setPayrollSummaryCalcMode;
 
 
 
@@ -223,90 +264,74 @@
 
 
     function onPayrollCycleSelectChanged() {
-
         const select = document.getElementById('psummary-cycle-select');
-
         if (!select || !select.value) return;
 
-
-
         const [startVal, endVal] = select.value.split('|');
-
         const startInput = document.getElementById('psummary-start-date');
-
         const endInput = document.getElementById('psummary-end-date');
 
-
-
         if (startInput) startInput.value = startVal;
-
         if (endInput) endInput.value = endVal;
 
-
+        const cycleKey = `${startVal}_${endVal}`;
+        if (savedPayrollSummaryCycles && savedPayrollSummaryCycles[cycleKey] && savedPayrollSummaryCycles[cycleKey].calculationSource) {
+            setPayrollSummaryCalcMode(savedPayrollSummaryCycles[cycleKey].calculationSource);
+        } else {
+            setPayrollSummaryCalcMode(payrollCalculationMode);
+        }
 
         renderPayrollSummaryTable();
-
     }
 
-
-
     function undoPayrollSummaryAction() {
-
         if (payrollSummaryHistoryStack.length === 0) {
-
             alert('لا توجد معاملات سابقة للتراجع عنها في هذه الشاشة!');
-
             return;
-
         }
 
         if (confirm('هل تريد التراجع عن آخر حركة تم إجراؤها في شاشة إجمالي الرواتب؟')) {
-
             const prev = payrollSummaryHistoryStack.pop();
-
             savedPayrollSummaryCycles = JSON.parse(prev);
-
             localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify(savedPayrollSummaryCycles));
-        if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('payrollCycles', savedPayrollSummaryCycles);
-
+            if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('payrollCycles', savedPayrollSummaryCycles);
             renderPayrollSummaryTable();
-
             alert('تم التراجع بنجاح!');
-
         }
-
     }
 
-
-
     function savePayrollSummaryExplicit() {
-
         const startInput = document.getElementById('psummary-start-date');
-
         const endInput = document.getElementById('psummary-end-date');
+        if (!startInput || !endInput || !startInput.value || !endInput.value) {
+            alert('يرجى تحديد فترة دورة الراتب أولاً!');
+            return;
+        }
 
         const cycleKey = `${startInput.value}_${endInput.value}`;
-
-
 
         payrollSummaryHistoryStack.push(JSON.stringify(savedPayrollSummaryCycles));
 
         savedPayrollSummaryCycles[cycleKey] = {
-
             savedAt: new Date().toISOString(),
-
             startDate: startInput.value,
-
-            endDate: endInput.value
-
+            endDate: endInput.value,
+            calculationSource: payrollCalculationMode,
+            sourceLabel: payrollCalculationMode === 'punch' ? 'تسجيل ذكي / بصمة' : 'تسجيل يدوي'
         };
 
-
-
         localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify(savedPayrollSummaryCycles));
+        if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('payrollCycles', savedPayrollSummaryCycles);
 
-        alert(`تم حفظ واعتماد مسير رواتب الفترة من [ ${startInput.value} إلى ${endInput.value} ] بنجاح في المنظومة! 💾`);
+        // تسجيل في سجل عمليات الاحتساب (Audit Log)
+        if (typeof recordPayrollCalculationAudit === 'function' && Array.isArray(window.lastRenderedPayrollSummaryList)) {
+            window.lastRenderedPayrollSummaryList.forEach(entry => {
+                recordPayrollCalculationAudit(entry);
+            });
+        }
 
+        const sourceArabic = (payrollCalculationMode === 'punch') ? 'التسجيل الذكي (البصمة)' : 'التسجيل اليدوي';
+        alert(`تم حفظ واعتماد مسير رواتب الفترة من [ ${startInput.value} إلى ${endInput.value} ] بنجاح في المنظومة! 💾\n(مصدر الاحتساب المعتمد: ${sourceArabic})`);
     }
 
 
@@ -389,76 +414,86 @@
             netPeriod: 0
         };
 
-        activeEmps.forEach(emp => {
+        const alertEl = document.getElementById('psummary-missing-punch-alert');
+        let cycleBiometricIssues = [];
+        if (payrollCalculationMode === 'punch') {
+            if (typeof checkCycleBiometricMissingPunches === 'function') {
+                const checkRes = checkCycleBiometricMissingPunches(startDate, endDate, activeEmps);
+                if (checkRes && checkRes.hasIssues) {
+                    cycleBiometricIssues = checkRes.issues || [];
+                }
+            }
+            if (alertEl) {
+                if (cycleBiometricIssues.length > 0) {
+                    alertEl.style.display = 'block';
+                    const sample = cycleBiometricIssues.slice(0, 3).map(i => `${i.empName} (${i.date}: ${i.issue})`).join(' ، ');
+                    const more = cycleBiometricIssues.length > 3 ? ` + (${cycleBiometricIssues.length - 3} حالات أخرى)` : '';
+                    alertEl.innerHTML = `⚠️ <strong>تنبيه بيانات بصمة ناقصة:</strong> تم رصد (${cycleBiometricIssues.length}) حركة غير مكتملة [${sample}${more}]. يرجى مراجعة وتصحيح البصمات قبل الاعتماد!`;
+                } else {
+                    alertEl.style.display = 'none';
+                }
+            }
+        } else {
+            if (alertEl) alertEl.style.display = 'none';
+        }
 
+        window.lastRenderedPayrollSummaryList = [];
+
+        activeEmps.forEach(emp => {
             const rates = computeRates(emp.basicSalary, emp.shiftHours);
 
+            let basicHours = 0;
+            let ov1Hours = 0;
+            let ov2Hours = 0;
+            let ovMoreHours = 0;
+            let workedHolidaysCount = 0;
+            let attendedDaysForOff = 0;
+            let empHasMissingPunches = false;
+            let empMissingIssueText = '';
 
-
-            // 1. تصفية سجلات حضور الموظف في الفترة المحددة (25 إلى 24)
-
-            const empRecords = attendanceRecords.filter(r => {
-
-                return r.empId === emp.id && (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate);
-
-            });
-
-
-
-            // 2. تجميع ساعات الشيفت الأساسي وقيمتها
-
-            const basicHours = empRecords.reduce((sum, r) => sum + (Number(r.basicHours) || 0), 0);
+            if (payrollCalculationMode === 'punch') {
+                // ── استخدام بيانات البصمة الموجودة بالفعل دون جمعها مع اليدوي ──
+                let bio = { totBasicHours: 0, totOv1Hours: 0, totOv2Hours: 0, totOvMoreHours: 0, totOvHours: 0, attendedDaysCount: 0, workedHolidaysCount: 0, hasMissingIssues: false, missingIssues: [] };
+                if (typeof calculateEmployeeBiometricAttendance === 'function') {
+                    bio = calculateEmployeeBiometricAttendance(emp, startDate, endDate);
+                }
+                basicHours = bio.totBasicHours;
+                ov1Hours = bio.totOv1Hours;
+                ov2Hours = bio.totOv2Hours;
+                ovMoreHours = bio.totOvMoreHours;
+                workedHolidaysCount = bio.workedHolidaysCount;
+                attendedDaysForOff = bio.attendedDaysCount;
+                if (bio.hasMissingIssues && bio.missingIssues.length > 0) {
+                    empHasMissingPunches = true;
+                    empMissingIssueText = bio.missingIssues.map(m => `${m.date}: ${m.issue}`).join(' | ');
+                }
+            } else {
+                // ── النظام الأساسي والافتراضي: شاشة الحضور والانصراف اليدوية ──
+                const empRecords = attendanceRecords.filter(r => {
+                    return r.empId === emp.id && (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate);
+                });
+                basicHours = empRecords.reduce((sum, r) => sum + (Number(r.basicHours) || 0), 0);
+                ov1Hours = empRecords.reduce((sum, r) => sum + (Number(r.ov1) || 0), 0);
+                ov2Hours = empRecords.reduce((sum, r) => sum + (Number(r.ov2) || 0), 0);
+                ovMoreHours = empRecords.reduce((sum, r) => sum + (Number(r.ovMore) || 0), 0);
+                const holRecords = empRecords.filter(r => (r.isHoliday || (Array.isArray(officialHolidaysDb) && officialHolidaysDb.includes(r.date))) && (Number(r.hours) > 0 || r.timeIn));
+                workedHolidaysCount = new Set(holRecords.map(r => r.date)).size;
+                attendedDaysForOff = empRecords.filter(r => (Number(r.hours) > 0 || r.timeIn)).length;
+            }
 
             const basicWage = Math.round((basicHours * rates.hourlyRate) * 100) / 100;
-
-
-
-            // 3. تجميع ساعات الإضافي وقيم الشرائح الثلاث
-
-            const ov1Hours = empRecords.reduce((sum, r) => sum + (Number(r.ov1) || 0), 0);
-
             const ov1Wage = Math.round((ov1Hours * rates.ov1) * 100) / 100;
-
-
-
-            const ov2Hours = empRecords.reduce((sum, r) => sum + (Number(r.ov2) || 0), 0);
-
             const ov2Wage = Math.round((ov2Hours * rates.ov2) * 100) / 100;
-
-
-
-            const ovMoreHours = empRecords.reduce((sum, r) => sum + (Number(r.ovMore) || 0), 0);
-
             const ovMoreWage = Math.round((ovMoreHours * rates.ovMore) * 100) / 100;
-
-
-
             const ovTotalHours = Math.round((ov1Hours + ov2Hours + ovMoreHours) * 100) / 100;
-
             const ovTotalWage = Math.round((ov1Wage + ov2Wage + ovMoreWage) * 100) / 100;
 
-
-
-            // احتساب أيام العمل في الإجازات الرسمية وبدل الإجازات الرسمية (يوم عمل زيادة لكل موظف شغال)
-
             const dailyBasicRate = Math.round((emp.basicSalary / 30.0) * 100) / 100;
-
-            const holRecords = empRecords.filter(r => (r.isHoliday || officialHolidaysDb.includes(r.date)) && (Number(r.hours) > 0 || r.timeIn));
-
-            const workedHolidaysCount = new Set(holRecords.map(r => r.date)).size;
-
             const holidayAllowance = Math.round((workedHolidaysCount * dailyBasicRate) * 100) / 100;
-
-
-
             const totalWorkWage = Math.round((basicWage + ovTotalWage + holidayAllowance) * 100) / 100;
 
-
-
             // 4. احتساب الراحات الأسبوعية وقيمتها
-
-            const offDaysCount = calculateOffDaysCountBetweenDates(startDate, endDate, emp.offDay, emp);
-
+            const offDaysCount = calculateOffDaysCountBetweenDates(startDate, endDate, emp.offDay, attendedDaysForOff);
             const offDaysWage = Math.round((offDaysCount * dailyBasicRate) * 100) / 100;
 
 
@@ -538,18 +573,32 @@
             colTotals.deductions += totalDeductions;
             colTotals.netPeriod += finalNetSalary;
 
-
+            window.lastRenderedPayrollSummaryList.push({
+                empId: emp.id,
+                empName: emp.name,
+                job: emp.job,
+                period: `${startDate} إلى ${endDate}`,
+                source: payrollCalculationMode,
+                sourceLabel: (payrollCalculationMode === 'punch') ? 'تسجيل ذكي / بصمة' : 'تسجيل يدوي',
+                calculatedBy: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.fullName || currentUser.name || currentUser.username) : 'المدير العام',
+                totalHours: Math.round((basicHours + ovTotalHours) * 100) / 100,
+                basicHours: basicHours,
+                overtimeHours: ovTotalHours,
+                netSalary: finalNetSalary
+            });
 
             const tr = document.createElement('tr');
+            if (empHasMissingPunches) {
+                tr.style.backgroundColor = 'rgba(254, 226, 226, 0.4)';
+            }
 
             tr.innerHTML = `
-
                 <td class="sticky-col-1"><span class="badge badge-dept">${emp.job}</span></td>
-
                 <td class="sticky-col-2"><strong>#${emp.id}</strong></td>
-
-                <td class="sticky-col-3"><strong>${emp.name}</strong></td>
-
+                <td class="sticky-col-3">
+                    <strong>${emp.name}</strong>
+                    ${empHasMissingPunches ? `<span title="⚠️ بصمة ناقصة: ${empMissingIssueText}" style="color:#b91c1c; font-size:12.5px; font-weight:bold; cursor:pointer;" onclick="alert('⚠️ تنبيه بصمة ناقصة للموظف [${emp.name}]:\\n${empMissingIssueText}')"> ⚠️</span>` : ''}
+                </td>
                 <td style="color:var(--text-main); font-weight:bold;">${Number(emp.basicSalary).toLocaleString()} ج.م</td>
 
                 
@@ -1062,20 +1111,131 @@
 
 
     function exportPayrollSummaryToPdf() {
-
         const printHtml = getPayrollSummaryPrintHtml();
-
         if (!printHtml) return;
 
         const startInput = document.getElementById('psummary-start-date');
-
         const endInput = document.getElementById('psummary-end-date');
-
         const cycleKey = `${startInput ? startInput.value : ''}_${endInput ? endInput.value : ''}`;
-
         const filename = `شيت_إجمالي_الرواتب_${cycleKey}.pdf`;
 
         downloadPrintHtmlAsPdf(printHtml, filename, 'landscape');
-
     }
+
+    // =========================================================================
+    // نافذة وسجل عمليات احتساب الرواتب والتدقيق (Payroll Calculation Audit Log)
+    // =========================================================================
+    function openPayrollAuditLogModal() {
+        let modal = document.getElementById('modal-payroll-audit-log');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'modal-payroll-audit-log';
+            modal.className = 'modal';
+            modal.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:99999; justify-content:center; align-items:center; padding:15px; direction:rtl;';
+            modal.innerHTML = `
+                <div style="background:#fff; width:95%; max-width:960px; max-height:85vh; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); display:flex; flex-direction:column; overflow:hidden;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; background:#102a45; color:#fff;">
+                        <h3 style="margin:0; font-size:16px; font-weight:800;">📜 سجل عمليات احتساب الرواتب والتدقيق (Audit Log)</h3>
+                        <button type="button" onclick="closePayrollAuditLogModal()" style="background:transparent; border:none; color:#fff; font-size:18px; cursor:pointer; font-weight:bold;">✕</button>
+                    </div>
+                    <div style="padding:14px 20px; overflow-y:auto; flex:1;">
+                        <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <input type="text" id="audit-log-search" placeholder="🔍 بحث في السجل بالموظف أو التاريخ أو المستخدم..." onkeyup="renderPayrollAuditLogTable()" style="padding:7px 12px; border-radius:6px; border:1px solid #cbd5e1; font-size:12.5px; min-width:260px;">
+                            <button type="button" onclick="clearPayrollAuditLogHistory()" style="padding:6px 14px; font-size:11.5px; border-radius:6px; background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; cursor:pointer; font-weight:bold;">🗑️ مسح السجل</button>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:right;">
+                                <thead>
+                                    <tr style="background:#f1f5f9; color:#1e293b; border-bottom:2px solid #cbd5e1;">
+                                        <th style="padding:8px 6px;">م</th>
+                                        <th style="padding:8px 6px;">تاريخ الاحتساب</th>
+                                        <th style="padding:8px 6px;">الموظف</th>
+                                        <th style="padding:8px 6px;">الوظيفة</th>
+                                        <th style="padding:8px 6px;">الفترة</th>
+                                        <th style="padding:8px 6px;">المستخدم المنفذ</th>
+                                        <th style="padding:8px 6px;">مصدر الحضور</th>
+                                        <th style="padding:8px 6px;">إجمالي الساعات</th>
+                                        <th style="padding:8px 6px;">الأساسي</th>
+                                        <th style="padding:8px 6px;">الإضافي</th>
+                                        <th style="padding:8px 6px;">صافي الراتب</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="payroll-audit-log-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div style="padding:10px 20px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end;">
+                        <button type="button" onclick="closePayrollAuditLogModal()" style="padding:7px 20px; font-weight:bold; border-radius:6px; border:1px solid #94a3b8; background:#fff; cursor:pointer;">إغلاق النافذة</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        renderPayrollAuditLogTable();
+        modal.style.display = 'flex';
+    }
+
+    function closePayrollAuditLogModal() {
+        const modal = document.getElementById('modal-payroll-audit-log');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function renderPayrollAuditLogTable() {
+        const tbody = document.getElementById('payroll-audit-log-tbody');
+        if (!tbody) return;
+        const term = (document.getElementById('audit-log-search')?.value || '').trim().toLowerCase();
+        let list = [];
+        try {
+            list = JSON.parse(localStorage.getItem('erp_payroll_calc_audit_history') || '[]');
+        } catch(e) { list = []; }
+
+        if (term) {
+            list = list.filter(item => {
+                return (item.empName && item.empName.toLowerCase().includes(term)) ||
+                       (item.calculatedBy && item.calculatedBy.toLowerCase().includes(term)) ||
+                       (item.period && item.period.toLowerCase().includes(term)) ||
+                       (item.calculatedAt && item.calculatedAt.toLowerCase().includes(term));
+            });
+        }
+
+        if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:24px; color:#64748b; font-weight:bold;">لا توجد أي سجلات تدقيق محفوظة حتى الآن. سيتم التسجيل تلقائياً عند اعتماد مسير الرواتب.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = list.slice(0, 200).map((row, idx) => {
+            const dateStr = row.calculatedAt ? new Date(row.calculatedAt).toLocaleString('ar-EG') : '-';
+            const isPunch = (row.source === 'punch' || (row.sourceLabel && row.sourceLabel.includes('بصمة')));
+            const sourceBadge = isPunch 
+                ? '<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 7px; border-radius:4px; font-weight:bold;">📱 بصمة</span>'
+                : '<span style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; padding:2px 7px; border-radius:4px; font-weight:bold;">✍️ يدوي</span>';
+            return `
+                <tr style="border-bottom:1px solid #e2e8f0;">
+                    <td style="padding:6px 8px;">${idx + 1}</td>
+                    <td style="padding:6px 8px; font-size:11px; color:#475569;">${dateStr}</td>
+                    <td style="padding:6px 8px; font-weight:bold; color:#102a45;">${row.empName || '-'}</td>
+                    <td style="padding:6px 8px; color:#64748b;">${row.job || '-'}</td>
+                    <td style="padding:6px 8px; font-size:11px; font-family:Consolas, monospace;">${row.period || '-'}</td>
+                    <td style="padding:6px 8px; font-weight:600; color:#334155;">${row.calculatedBy || '-'}</td>
+                    <td style="padding:6px 8px;">${sourceBadge}</td>
+                    <td style="padding:6px 8px; font-weight:bold; color:#0284c7;">${Number(row.totalHours || 0).toFixed(2)} س</td>
+                    <td style="padding:6px 8px;">${Number(row.basicHours || 0).toFixed(2)}</td>
+                    <td style="padding:6px 8px;">${Number(row.overtimeHours || 0).toFixed(2)}</td>
+                    <td style="padding:6px 8px; font-weight:bold; color:#7c3aed;">${Number(row.netSalary || 0).toLocaleString()} ج.م</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function clearPayrollAuditLogHistory() {
+        if (!confirm('هل تريد مسح سجل عمليات الاحتساب التاريخية؟')) return;
+        localStorage.setItem('erp_payroll_calc_audit_history', JSON.stringify([]));
+        renderPayrollAuditLogTable();
+    }
+
+    window.openPayrollAuditLogModal = openPayrollAuditLogModal;
+    window.closePayrollAuditLogModal = closePayrollAuditLogModal;
+    window.renderPayrollAuditLogTable = renderPayrollAuditLogTable;
+    window.clearPayrollAuditLogHistory = clearPayrollAuditLogHistory;
+
 

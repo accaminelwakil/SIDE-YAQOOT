@@ -1,10 +1,70 @@
     window.previousScreenBeforeBulk = window.previousScreenBeforeBulk || 'screen-single-sarki';
+    let bulkPayslipsSourceMode = 'manual'; // 'manual' (الافتراضي الأساسي) or 'punch'
+
+    function setBulkPayslipsSourceMode(mode) {
+        bulkPayslipsSourceMode = (mode === 'punch') ? 'punch' : 'manual';
+
+        const btnManual = document.getElementById('btn-bulk-mode-manual');
+        const btnPunch = document.getElementById('btn-bulk-mode-punch');
+        const badge = document.getElementById('bulk-source-badge');
+
+        if (btnManual && btnPunch) {
+            if (bulkPayslipsSourceMode === 'manual') {
+                btnManual.classList.add('active');
+                btnPunch.classList.remove('active');
+            } else {
+                btnPunch.classList.add('active');
+                btnManual.classList.remove('active');
+            }
+        }
+
+        const labelText = (bulkPayslipsSourceMode === 'punch')
+            ? '📱 المصدر الحالي: تسجيل ذكي / بصمة'
+            : '📝 المصدر الحالي: تسجيل يدوي';
+
+        if (badge) {
+            badge.textContent = labelText;
+            if (bulkPayslipsSourceMode === 'punch') {
+                badge.style.background = '#eef2ff';
+                badge.style.color = '#3730a3';
+                badge.style.borderColor = '#a5b4fc';
+            } else {
+                badge.style.background = '#f0fdf4';
+                badge.style.color = '#15803d';
+                badge.style.borderColor = '#86efac';
+            }
+        }
+
+        renderBulkEmployeePayslips();
+    }
+    window.setBulkPayslipsSourceMode = setBulkPayslipsSourceMode;
 
     function bulkPayslipsGoBack() {
         switchScreen(previousScreenBeforeBulk || 'screen-single-sarki');
     }
 
     function saveBulkPayslipsData() {
+        const cycleSelect = document.getElementById('bulk-payslips-cycle-select');
+        const cycleKey = (cycleSelect && cycleSelect.value) ? cycleSelect.value.replace('|', '_') : '';
+
+        if (cycleKey && typeof savedPayrollSummaryCycles !== 'undefined') {
+            if (!savedPayrollSummaryCycles[cycleKey]) {
+                savedPayrollSummaryCycles[cycleKey] = { records: [], status: 'معتمد' };
+            }
+            savedPayrollSummaryCycles[cycleKey].calculationSource = bulkPayslipsSourceMode;
+            localStorage.setItem('erp_payroll_summary_cycles_db', JSON.stringify(savedPayrollSummaryCycles));
+        }
+
+        if (typeof recordPayrollCalculationAudit === 'function' && cycleKey) {
+            recordPayrollCalculationAudit({
+                cycleKey,
+                date: new Date().toISOString(),
+                source: bulkPayslipsSourceMode,
+                action: 'اعتماد وحفظ السراكي المجمعة - ' + (bulkPayslipsSourceMode === 'punch' ? 'بصمة ذكية' : 'يدوي'),
+                user: (typeof currentUser !== 'undefined' && currentUser && currentUser.name) ? currentUser.name : 'المسؤول'
+            });
+        }
+
         localStorage.setItem('erp_salary_adjustments_db', JSON.stringify(salaryAdjustmentsDb));
         localStorage.setItem('erp_attendance_db', JSON.stringify(attendanceRecords));
         localStorage.setItem('erp_employees_db', JSON.stringify(employees));
@@ -95,31 +155,49 @@
         const baseMonthlySalary = Number(emp.basicSalary) || 0;
         const rates = computeRates(baseMonthlySalary, emp.shiftHours || 8);
 
-        const empRecords = (attendanceRecords || []).filter(r => {
-            return r && r.empId === emp.id && r.date >= fromDate && r.date <= toDate;
-        });
-
         let totBasicHours = 0;
         let totOv1Hours = 0;
         let totOv2Hours = 0;
         let totOvMoreHours = 0;
         let workedHolidaysCount = 0;
+        let hasMissingPunch = false;
+        let missingIssue = '';
 
-        empRecords.forEach(r => {
-            const h = Number(r.hours) || 0;
-            const b = Number(r.basicHours) || 0;
-            const o1 = Number(r.ov1) || 0;
-            const o2 = Number(r.ov2) || 0;
-            const om = Number(r.ovMore) || 0;
+        if (bulkPayslipsSourceMode === 'punch') {
+            if (typeof calculateEmployeeBiometricAttendance === 'function') {
+                const bio = calculateEmployeeBiometricAttendance(emp, fromDate, toDate);
+                totBasicHours = bio.totBasicHours;
+                totOv1Hours = bio.totOv1Hours;
+                totOv2Hours = bio.totOv2Hours;
+                totOvMoreHours = bio.totOvMoreHours;
+                workedHolidaysCount = bio.workedHolidaysCount;
+                hasMissingPunch = bio.hasMissingIssues;
+                if (bio.missingIssues && bio.missingIssues.length > 0) {
+                    missingIssue = bio.missingIssues.map(m => `${m.date} (${m.issue})`).join('، ');
+                }
+            }
+        } else {
+            // التسجيل اليدوي الأساسي
+            const empRecords = (attendanceRecords || []).filter(r => {
+                return r && r.empId === emp.id && r.date >= fromDate && r.date <= toDate;
+            });
 
-            totBasicHours += b;
-            totOv1Hours += o1;
-            totOv2Hours += o2;
-            totOvMoreHours += om;
+            empRecords.forEach(r => {
+                const h = Number(r.hours) || 0;
+                const b = Number(r.basicHours) || 0;
+                const o1 = Number(r.ov1) || 0;
+                const o2 = Number(r.ov2) || 0;
+                const om = Number(r.ovMore) || 0;
 
-            const isHol = r.isHoliday || (Array.isArray(officialHolidaysDb) && officialHolidaysDb.includes(r.date));
-            if (isHol && (h > 0 || r.timeIn)) workedHolidaysCount++;
-        });
+                totBasicHours += b;
+                totOv1Hours += o1;
+                totOv2Hours += o2;
+                totOvMoreHours += om;
+
+                const isHol = r.isHoliday || (Array.isArray(officialHolidaysDb) && officialHolidaysDb.includes(r.date));
+                if (isHol && (h > 0 || r.timeIn)) workedHolidaysCount++;
+            });
+        }
 
         const basicWage = Math.round((totBasicHours * (rates.hourlyRate || 0)) * 100) / 100;
         const dailyBasicRate = Math.round((baseMonthlySalary / 30.0) * 100) / 100;
@@ -178,7 +256,11 @@
             supVal,
             otherVal,
             totalDeductions,
-            finalNet
+            finalNet,
+            source: bulkPayslipsSourceMode,
+            sourceLabel: (bulkPayslipsSourceMode === 'punch') ? '📱 تسجيل ذكي / بصمة' : '📝 تسجيل يدوي',
+            hasMissingPunch,
+            missingIssue
         };
     }
 
@@ -247,6 +329,13 @@
                     <td style="border:1px solid #000; padding:2px 3.5px; font-weight:900; font-family:Consolas, monospace; text-align:center;">${codeDisplay}</td>
                     <td style="border:1px solid #000; padding:2px 3.5px; font-weight:bold; background:#f1f5f9;">القسم</td>
                     <td style="border:1px solid #000; padding:2px 3.5px; font-weight:bold; text-align:center;">${emp.job || '-'}</td>
+                </tr>
+                <tr>
+                    <td style="border:1px solid #000; padding:2px 3.5px; font-weight:bold; background:#f1f5f9;">مصدر الحضور</td>
+                    <td colspan="3" style="border:1px solid #000; padding:2px 3.5px; font-weight:bold; font-size:8.5px;">
+                        <span>${data.sourceLabel || (bulkPayslipsSourceMode === 'punch' ? '📱 تسجيل ذكي / بصمة' : '📝 تسجيل يدوي')}</span>
+                        ${data.hasMissingPunch ? `<span style="color:#dc2626; margin-right:6px;">(⚠️ بصمات ناقصة: ${data.missingIssue})</span>` : ''}
+                    </td>
                 </tr>
             </table>
 
@@ -418,6 +507,30 @@
         const cycleText = cycleSelect.options[cycleSelect.selectedIndex] ? cycleSelect.options[cycleSelect.selectedIndex].text : '';
         const deptFilter = document.getElementById('bulk-payslips-dept-filter') ? document.getElementById('bulk-payslips-dept-filter').value : '';
 
+        // مزامنة مصدر الاحتساب تلقائياً في حال وجود دورة معتمدة مسبقاً
+        const cycleKey = `${fromDate}_${toDate}`;
+        if (typeof savedPayrollSummaryCycles !== 'undefined' && savedPayrollSummaryCycles[cycleKey] && savedPayrollSummaryCycles[cycleKey].calculationSource) {
+            const savedSrc = savedPayrollSummaryCycles[cycleKey].calculationSource;
+            if (savedSrc !== bulkPayslipsSourceMode) {
+                bulkPayslipsSourceMode = savedSrc;
+                const btnManual = document.getElementById('btn-bulk-mode-manual');
+                const btnPunch = document.getElementById('btn-bulk-mode-punch');
+                const badge = document.getElementById('bulk-source-badge');
+                if (btnManual && btnPunch) {
+                    if (bulkPayslipsSourceMode === 'manual') {
+                        btnManual.classList.add('active');
+                        btnPunch.classList.remove('active');
+                    } else {
+                        btnPunch.classList.add('active');
+                        btnManual.classList.remove('active');
+                    }
+                }
+                if (badge) {
+                    badge.textContent = (bulkPayslipsSourceMode === 'punch') ? '📱 المصدر الحالي: تسجيل ذكي / بصمة' : '📝 المصدر الحالي: تسجيل يدوي';
+                }
+            }
+        }
+
         const eligibleEmployees = getEligibleEmployeesForBulkPayslips(fromDate, toDate, deptFilter);
         if (eligibleEmployees.length === 0) {
             container.innerHTML = '';
@@ -426,6 +539,25 @@
             return;
         }
         if (emptyEl) emptyEl.style.display = 'none';
+
+        // فحص وتنبيه البصمات الناقصة في السراكي المجمعة
+        const bulkAlertEl = document.getElementById('bulk-missing-punch-alert');
+        const bulkAlertDetails = document.getElementById('bulk-missing-punch-details');
+        if (bulkAlertEl && bulkAlertDetails) {
+            if (bulkPayslipsSourceMode === 'punch' && typeof checkCycleBiometricMissingPunches === 'function') {
+                const missingCheck = checkCycleBiometricMissingPunches(fromDate, toDate, eligibleEmployees);
+                if (missingCheck && missingCheck.hasMissing) {
+                    bulkAlertDetails.innerHTML = missingCheck.issuesList.slice(0, 5).map(iss => 
+                        `• <strong>${iss.empName}</strong> (${iss.date}): ${iss.issue}`
+                    ).join('<br>') + (missingCheck.issuesList.length > 5 ? `<br>... و ${missingCheck.issuesList.length - 5} حالات أخرى` : '');
+                    bulkAlertEl.style.display = 'block';
+                } else {
+                    bulkAlertEl.style.display = 'none';
+                }
+            } else {
+                bulkAlertEl.style.display = 'none';
+            }
+        }
 
         const pageCount = Math.ceil(eligibleEmployees.length / 3);
         if (badgeEl) badgeEl.textContent = `الموظفين المستحقين: ${eligibleEmployees.length} موظف (${pageCount} صفحة A4)`;

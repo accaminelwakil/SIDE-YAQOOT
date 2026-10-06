@@ -1,4 +1,49 @@
 // ==================== 3. سركي موظف ====================
+    let singleSarkiCalculationMode = 'manual'; // 'manual' (الافتراضي) or 'punch'
+
+    function setSingleSarkiSourceMode(mode) {
+        singleSarkiCalculationMode = (mode === 'punch') ? 'punch' : 'manual';
+
+        const btnManual = document.getElementById('btn-sarki-mode-manual');
+        const btnPunch = document.getElementById('btn-sarki-mode-punch');
+        const printSourceText = document.getElementById('sarki-source-print-text');
+        const screenSourceBadge = document.getElementById('sarki-source-screen-badge');
+
+        if (btnManual && btnPunch) {
+            if (singleSarkiCalculationMode === 'manual') {
+                btnManual.classList.add('active');
+                btnPunch.classList.remove('active');
+            } else {
+                btnPunch.classList.add('active');
+                btnManual.classList.remove('active');
+            }
+        }
+
+        const labelText = (singleSarkiCalculationMode === 'punch') 
+            ? '📱 مصدر الحضور: تسجيل ذكي / بصمة' 
+            : '📝 مصدر الحضور: تسجيل يدوي';
+
+        if (printSourceText) printSourceText.textContent = labelText;
+        if (screenSourceBadge) screenSourceBadge.textContent = labelText;
+
+        const sarkiSourceBadge = document.getElementById('sarki-source-badge');
+        if (sarkiSourceBadge) {
+            sarkiSourceBadge.textContent = labelText;
+            if (singleSarkiCalculationMode === 'punch') {
+                sarkiSourceBadge.style.background = '#eef2ff';
+                sarkiSourceBadge.style.color = '#3730a3';
+                sarkiSourceBadge.style.borderColor = '#a5b4fc';
+            } else {
+                sarkiSourceBadge.style.background = '#f0fdf4';
+                sarkiSourceBadge.style.color = '#15803d';
+                sarkiSourceBadge.style.borderColor = '#86efac';
+            }
+        }
+
+        generateSingleSarki();
+    }
+    window.setSingleSarkiSourceMode = setSingleSarkiSourceMode;
+
     function populateSarkiCyclesDropdown() {
         const select = document.getElementById('sarki-cycle-select');
         if (!select) return;
@@ -48,6 +93,13 @@
         if (startInput) startInput.value = startVal;
         if (endInput) endInput.value = endVal;
 
+        const cycleKey = `${startVal}_${endVal}`;
+        if (typeof savedPayrollSummaryCycles !== 'undefined' && savedPayrollSummaryCycles[cycleKey] && savedPayrollSummaryCycles[cycleKey].calculationSource) {
+            setSingleSarkiSourceMode(savedPayrollSummaryCycles[cycleKey].calculationSource);
+        } else {
+            setSingleSarkiSourceMode(singleSarkiCalculationMode);
+        }
+
         generateSingleSarki();
     }
 
@@ -82,23 +134,50 @@
 
         syncSarkiPrintSpans();
 
-        // تصفية حركات الحضور والانصراف للفترة المحددة
-        const empRecords = attendanceRecords.filter(r => {
-            if (r.empId !== empId) return false;
-            if (fromDate && r.date < fromDate) return false;
-            if (toDate && r.date > toDate) return false;
-            return true;
-        });
+        // فحص مصدر الاحتساب (يدوي افتراضي أم بصمة ذكية)
+        let empRecords = [];
+        let missingPunchIssues = [];
+
+        if (singleSarkiCalculationMode === 'punch') {
+            if (typeof calculateEmployeeBiometricAttendance === 'function') {
+                const bioData = calculateEmployeeBiometricAttendance(emp, fromDate, toDate);
+                empRecords = bioData.dailyRecords || [];
+                if (bioData.hasMissingIssues) {
+                    missingPunchIssues = bioData.missingIssues || [];
+                }
+            }
+        } else {
+            // التسجيل اليدوي الأساسي الافتراضي
+            empRecords = attendanceRecords.filter(r => {
+                if (r.empId !== empId) return false;
+                if (fromDate && r.date < fromDate) return false;
+                if (toDate && r.date > toDate) return false;
+                return true;
+            });
+        }
+
+        // عرض أو إخفاء تنبيه البصمات الناقصة في السركي
+        const sarkiMissingAlert = document.getElementById('sarki-missing-punch-alert');
+        if (sarkiMissingAlert) {
+            if (singleSarkiCalculationMode === 'punch' && missingPunchIssues.length > 0) {
+                const issueDates = missingPunchIssues.map(i => `${i.date} (${i.issue})`).join('، ');
+                sarkiMissingAlert.innerHTML = `<strong>⚠️ تنبيه: توجد بصمات غير مكتملة لهذا الموظف:</strong> ${issueDates} — يرجى استكمالها لاحتساب الساعات بدقة.`;
+                sarkiMissingAlert.style.display = 'block';
+            } else {
+                sarkiMissingAlert.style.display = 'none';
+            }
+        }
 
         tbody.innerHTML = '';
         if (tfoot) tfoot.innerHTML = '';
 
+        const modeSuffix = (singleSarkiCalculationMode === 'punch') ? ' (بصمة ذكية)' : ' (يدوي)';
         if (empRecords.length === 0) {
             if (empty) empty.style.display = 'block';
-            document.getElementById('sarki-shifts-count-label').textContent = 'عدد الشيفتات: 0';
+            document.getElementById('sarki-shifts-count-label').textContent = 'عدد الشيفتات: 0' + modeSuffix;
         } else {
             if (empty) empty.style.display = 'none';
-            document.getElementById('sarki-shifts-count-label').textContent = `عدد الشيفتات: ${empRecords.length}`;
+            document.getElementById('sarki-shifts-count-label').textContent = `عدد الشيفتات: ${empRecords.length}${modeSuffix}`;
         }
 
         const rates = computeRates(emp.basicSalary, emp.shiftHours);
@@ -124,19 +203,31 @@
             totOv2Hours += o2;
             totOvMoreHours += om;
 
-            const isHol = r.isHoliday || officialHolidaysDb.includes(r.date);
+            const isHol = r.isHoliday || (typeof officialHolidaysDb !== 'undefined' && Array.isArray(officialHolidaysDb) && officialHolidaysDb.includes(r.date));
             if (isHol && (h > 0 || r.timeIn)) workedHolidaysCount++;
 
             const tr = document.createElement('tr');
-            tr.style.background = '#ffffff';
+            if (r.hasMissingPunch) {
+                tr.style.background = '#fef2f2';
+            } else {
+                tr.style.background = '#ffffff';
+            }
+
+            const missingBadge = r.hasMissingPunch 
+                ? `<div style="font-size:10px; color:#dc2626; font-weight:bold;">⚠️ ${r.missingIssue || 'بصمة ناقصة'}</div>` 
+                : '';
+
             tr.innerHTML = `
-                <td style="border:1.5px solid #000; padding:5px 6px; font-weight:bold; background:#ffffff; color:#000000;">${r.date}</td>
-                <td style="border:1.5px solid #000; padding:5px; font-family:Consolas, monospace; font-weight:bold; background:#ffffff; color:#000000;">${r.timeIn || '-'}</td>
-                <td style="border:1.5px solid #000; padding:5px; font-family:Consolas, monospace; font-weight:bold; background:#ffffff; color:#000000;">${r.timeOut || '-'}</td>
-                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; font-family:Consolas, monospace; background:#ffffff; color:#000000;">${h.toFixed(2)} س</td>
-                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; font-family:Consolas, monospace; background:#ffffff; color:#000000;">${b.toFixed(2)}</td>
-                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; font-family:Consolas, monospace; background:#ffffff; color:#000000;">${totOv.toFixed(2)}</td>
-                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; background:#ffffff; color:${isHol ? '#b91c1c' : '#000000'};">${isHol ? '🎉 إجازة رسمية' : '-'}</td>
+                <td style="border:1.5px solid #000; padding:5px 6px; font-weight:bold; background:${r.hasMissingPunch ? '#fef2f2' : '#ffffff'}; color:#000000;">
+                    ${r.date}
+                    ${missingBadge}
+                </td>
+                <td style="border:1.5px solid #000; padding:5px; font-family:Consolas, monospace; font-weight:bold; background:${r.hasMissingPunch ? '#fef2f2' : '#ffffff'}; color:#000000;">${r.timeIn || '-'}</td>
+                <td style="border:1.5px solid #000; padding:5px; font-family:Consolas, monospace; font-weight:bold; background:${r.hasMissingPunch ? '#fef2f2' : '#ffffff'}; color:#000000;">${r.timeOut || '-'}</td>
+                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; font-family:Consolas, monospace; background:${r.hasMissingPunch ? '#fef2f2' : '#ffffff'}; color:#000000;">${h.toFixed(2)} س</td>
+                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; font-family:Consolas, monospace; background:${r.hasMissingPunch ? '#fef2f2' : '#ffffff'}; color:#000000;">${b.toFixed(2)}</td>
+                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; font-family:Consolas, monospace; background:${r.hasMissingPunch ? '#fef2f2' : '#ffffff'}; color:#000000;">${totOv.toFixed(2)}</td>
+                <td style="border:1.5px solid #000; padding:5px; font-weight:bold; background:${r.hasMissingPunch ? '#fef2f2' : '#ffffff'}; color:${isHol ? '#b91c1c' : '#000000'};">${isHol ? '🎉 إجازة رسمية' : '-'}</td>
             `;
             tbody.appendChild(tr);
         });
@@ -263,6 +354,29 @@
             showToast('يرجى اختيار موظف ودورة راتب أولاً!', 'warning');
             return;
         }
+
+        const cycleSelect = document.getElementById('sarki-cycle-select');
+        const cycleKey = (cycleSelect && cycleSelect.value) ? cycleSelect.value.replace('|', '_') : '';
+        const emp = (typeof employees !== 'undefined' && Array.isArray(employees)) ? employees.find(e => e.id === empId) : null;
+
+        if (cycleKey && typeof savedPayrollSummaryCycles !== 'undefined') {
+            if (!savedPayrollSummaryCycles[cycleKey]) {
+                savedPayrollSummaryCycles[cycleKey] = { records: [], status: 'معتمد' };
+            }
+            savedPayrollSummaryCycles[cycleKey].calculationSource = singleSarkiCalculationMode;
+            localStorage.setItem('erp_payroll_summary_cycles_db', JSON.stringify(savedPayrollSummaryCycles));
+        }
+
+        if (typeof recordPayrollCalculationAudit === 'function' && cycleKey) {
+            recordPayrollCalculationAudit({
+                cycleKey,
+                date: new Date().toISOString(),
+                source: singleSarkiCalculationMode,
+                action: 'اعتماد وحفظ سركي الموظف (' + (emp ? emp.name : empId) + ') - ' + (singleSarkiCalculationMode === 'punch' ? 'بصمة ذكية' : 'يدوي'),
+                user: (typeof currentUser !== 'undefined' && currentUser && currentUser.name) ? currentUser.name : 'المسؤول'
+            });
+        }
+
         localStorage.setItem('erp_salary_adjustments_db', JSON.stringify(salaryAdjustmentsDb));
         localStorage.setItem('erp_attendance', JSON.stringify(attendanceRecords));
         localStorage.setItem('erp_employees', JSON.stringify(employees));

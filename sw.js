@@ -3,7 +3,7 @@
 // PWA & TWA Full Offline Support & PWABuilder Optimized
 // ====================================================================
 
-const CACHE_NAME = 'sidi-yaqout-v3';
+const CACHE_NAME = 'sidi-yaqout-v4';
 
 const CORE_FILES = [
     '/',
@@ -51,7 +51,12 @@ const CORE_FILES = [
     '/js/screens/10-totals-report.js',
     '/js/screens/11-backup-restore.js',
     '/js/screens/12-users-roles.js',
-    '/js/screens/13-employee-sarki.js'
+    '/js/screens/13-employee-sarki.js',
+    '/js/screens/15-leaves-permissions.js',
+    '/js/screens/16-punches-payroll.js',
+    '/js/screens/17-attendance-comparison.js',
+    '/js/utils/a4-scale-helper.js',
+    '/js/utils/notification-service.js'
 ];
 
 // ── Install: Pre-cache all essential core files ──────────────────────

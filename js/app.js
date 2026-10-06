@@ -1,7 +1,12 @@
+    let _welcomeResizeTimer = null;
     window.addEventListener('resize', () => {
-        if (document.getElementById('screen-welcome').classList.contains('active')) {
-            renderWelcomeDashboard();
-        }
+        clearTimeout(_welcomeResizeTimer);
+        _welcomeResizeTimer = setTimeout(() => {
+            const welcomeScreen = document.getElementById('screen-welcome');
+            if (welcomeScreen && welcomeScreen.classList.contains('active')) {
+                renderWelcomeDashboard();
+            }
+        }, 150);
     });
 
     // تشغيل المنظومة

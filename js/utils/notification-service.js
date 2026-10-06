@@ -428,10 +428,12 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
     window.syncIncomingNotificationsFromRemote = syncIncomingNotificationsFromRemote;
     window.syncNotificationsWithLocalServer = syncNotificationsWithLocalServer;
 
-    // مزامنة دورية خفيفة وسريعة كل 3.5 ثوانٍ مع السيرفر المحلي لدعم الشبكة الداخلية للعيادة
+    // مزامنة دورية هادئة كل 25 ثانية مع السيرفر المحلي عند نشاط المتصفح لتفادي أي تهنيج أو ثقل
     setInterval(() => {
-        syncNotificationsWithLocalServer();
-    }, 3500);
+        if (typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+            syncNotificationsWithLocalServer();
+        }
+    }, 25000);
 
     // تشغيل مبدئي عند اكتمال تحميل الصفحة
     if (document.readyState === 'loading') {

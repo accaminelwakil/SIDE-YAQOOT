@@ -1,12 +1,14 @@
 // ====================================================================
-// شاشة تقرير المقارنة والمطابقة بين بصمة الموظف والإدخال اليدوي
-// Attendance Comparison & Discrepancy Audit Engine (Punch vs Manual)
+// شاشة تقرير الحضور والانصراف والمطابقة بين البصمة والإدخال اليدوي
+// Comprehensive Attendance Report & Punch vs Manual Audit Engine
 // منظومة عيادات سيدي ياقوت التخصصية
 // ====================================================================
 
 (function() {
     let comparisonData = [];
+    let attendanceReportData = [];
     let showDiscrepanciesOnly = false;
+    let currentAttendanceViewMode = 'report'; // 'report' (تقرير الحضور التفصيلي) | 'audit' (مطابقة البصمة واليدوي)
 
     // تهيئة الشاشة
     function renderAttendanceComparisonScreen() {
@@ -14,7 +16,30 @@
         loadAndCalculateComparisonReport();
     }
 
-    // تعبئة دورات الرواتب
+    // تبديل وضع العرض: تقرير الحضور VS مطابقة وتدقيق
+    function setAttendanceReportViewMode(mode) {
+        currentAttendanceViewMode = (mode === 'audit') ? 'audit' : 'report';
+
+        const btnReport = document.getElementById('btn-comp-view-report');
+        const btnAudit = document.getElementById('btn-comp-view-audit');
+        const btnDiscOnly = document.getElementById('btn-comp-disc-only');
+
+        if (btnReport && btnAudit) {
+            if (currentAttendanceViewMode === 'report') {
+                btnReport.classList.add('active');
+                btnAudit.classList.remove('active');
+                if (btnDiscOnly) btnDiscOnly.style.display = 'none';
+            } else {
+                btnAudit.classList.add('active');
+                btnReport.classList.remove('active');
+                if (btnDiscOnly) btnDiscOnly.style.display = 'inline-block';
+            }
+        }
+
+        renderComparisonTableUI();
+    }
+
+    // تعبئة دورات الرواتب (25 إلى 24)
     function populateComparisonCyclesDropdown() {
         const select = document.getElementById('comp-cycle-select');
         const deptSel = document.getElementById('comp-dept-filter');
@@ -92,6 +117,7 @@
         const deptFilter = document.getElementById('comp-dept-filter') ? document.getElementById('comp-dept-filter').value : '';
         const empFilter = document.getElementById('comp-emp-filter') ? document.getElementById('comp-emp-filter').value : '';
         const specificDate = document.getElementById('comp-specific-date') ? document.getElementById('comp-specific-date').value : '';
+        const sourceFilter = document.getElementById('comp-source-filter') ? document.getElementById('comp-source-filter').value : '';
 
         // 1. جلب بصمات الـ GPS
         let punches = [];
@@ -118,8 +144,10 @@
         if (deptFilter) targetEmps = targetEmps.filter(e => e.job === deptFilter);
         if (empFilter) targetEmps = targetEmps.filter(e => String(e.id) === String(empFilter));
 
-        // 4. بناء هيكل المقارنة لكل موظف ولكل تاريخ في الدورة
+        // 4. بناء هيكل المقارنة وتقرير الحضور
         const comparisonRows = [];
+        const reportRows = [];
+
         let totalExactMatches = 0;
         let totalDiscrepancies = 0;
         let totalManualOnly = 0;
@@ -149,7 +177,10 @@
 
                 // استخراج بصمات هذا اليوم
                 const empPunches = punches.filter(p => {
-                    if (String(p.empId) !== String(emp.id) && p.empName !== emp.name) return false;
+                    const matchId = (String(p.empId) === String(emp.id)) || (p.empId === ('EMP_' + emp.id)) || (p.empId === emp.code);
+                    const matchName = p.empName && emp.name && (p.empName === emp.name || p.empName.includes(emp.name) || emp.name.includes(p.empName));
+                    if (!matchId && !matchName) return false;
+
                     const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
                     return pDate === dateVal && (p.status === 'ACCEPTED' || !p.status);
                 }).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
@@ -157,30 +188,74 @@
                 // إذا لم يكن هناك بصمات ولا حضور يدوي لهذا الموظف في هذا اليوم، نتخطاه
                 if (!manual && empPunches.length === 0) return;
 
-                const punchIns = empPunches.filter(p => p.type === 'in');
-                const punchOuts = empPunches.filter(p => p.type === 'out');
-
-                let punchInTime = punchIns.length > 0 ? punchIns[0].time : '-';
-                let punchOutTime = punchOuts.length > 0 ? punchOuts[punchOuts.length - 1].time : '-';
-                let punchHours = 0;
-
-                if (punchIns.length > 0 && punchOuts.length > 0) {
-                    const [h1, m1] = punchInTime.split(':').map(Number);
-                    const [h2, m2] = punchOutTime.split(':').map(Number);
-                    let diffM = (h2 * 60 + m2) - (h1 * 60 + m1);
-                    if (diffM < 0) diffM += 24 * 60;
-                    punchHours = Math.round((diffM / 60) * 100) / 100;
-                } else if (punchIns.length > 0) {
-                    punchHours = Number(emp.shiftHours) || 8;
+                // احتساب بصمات اليوم بالمعادلات المعتمدة
+                let punchCalc = null;
+                if (typeof computeDayPunchHours === 'function' && empPunches.length > 0) {
+                    punchCalc = computeDayPunchHours(empPunches, emp.shiftHours || 8);
                 }
+
+                const punchInTime = punchCalc ? punchCalc.firstIn : (empPunches.length > 0 ? (empPunches.find(p => p.type === 'in')?.time || '-') : '-');
+                const punchOutTime = punchCalc ? punchCalc.lastOut : (empPunches.length > 0 ? (empPunches.slice().reverse().find(p => p.type === 'out')?.time || '-') : '-');
+                const punchHours = punchCalc ? punchCalc.totalHours : 0;
+                const punchBasic = punchCalc ? punchCalc.basicHours : 0;
+                const punchOv = punchCalc ? punchCalc.ovTotal : 0;
 
                 const manualInTime = (manual && manual.timeIn) ? manual.timeIn : '-';
                 const manualOutTime = (manual && manual.timeOut) ? manual.timeOut : '-';
                 const manualHours = (manual && manual.hours) ? Number(manual.hours) : 0;
+                const manualBasic = (manual && manual.basicHours) ? Number(manual.basicHours) : 0;
+                const manualOv = (manual ? (Number(manual.ov1) || 0) + (Number(manual.ov2) || 0) + (Number(manual.ovMore) || 0) : 0);
 
-                // احتساب الفارق
+                const isHolidayDay = (typeof officialHolidaysDb !== 'undefined' && Array.isArray(officialHolidaysDb) && officialHolidaysDb.includes(dateVal)) || (manual && manual.isHoliday);
+
+                // ==================== أ. سجلات تقرير الحضور التفصيلي ====================
+                // 1. تسجيل يدوي
+                if (manual && (!sourceFilter || sourceFilter === 'manual')) {
+                    reportRows.push({
+                        empId: emp.id,
+                        empName: emp.name,
+                        dept: emp.job || 'عام',
+                        date: dateVal,
+                        firstIn: manualInTime,
+                        lastOut: manualOutTime,
+                        totalHours: manualHours,
+                        basicHours: manualBasic,
+                        ovHours: manualOv,
+                        source: 'manual',
+                        sourceLabel: '📝 تسجيل يدوي',
+                        status: isHolidayDay ? '🎉 إجازة رسمية' : 'مسجل ومعتمد',
+                        badgeStyle: 'background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;'
+                    });
+                }
+
+                // 2. تسجيل بصمة
+                if (empPunches.length > 0 && (!sourceFilter || sourceFilter === 'punch')) {
+                    const punchStatusText = punchCalc && !punchCalc.valid 
+                        ? `⚠️ بصمة ناقصة: ${punchCalc.issue}` 
+                        : (isHolidayDay ? '🎉 إجازة رسمية (بصمة)' : 'بصمة موثقة GPS ✅');
+
+                    reportRows.push({
+                        empId: emp.id,
+                        empName: emp.name,
+                        dept: emp.job || 'عام',
+                        date: dateVal,
+                        firstIn: punchInTime,
+                        lastOut: punchOutTime,
+                        totalHours: punchHours,
+                        basicHours: punchBasic,
+                        ovHours: punchOv,
+                        source: 'punch',
+                        sourceLabel: '📱 بصمة ذكية',
+                        status: punchStatusText,
+                        badgeStyle: punchCalc && !punchCalc.valid 
+                            ? 'background:#fef2f2; color:#dc2626; border:1px solid #fca5a5;' 
+                            : 'background:#f0fdf4; color:#15803d; border:1px solid #86efac;'
+                    });
+                }
+
+                // ==================== ب. سجلات المقارنة والتدقيق (جنباً إلى جنب) ====================
                 let hoursDiff = Math.round((manualHours - punchHours) * 100) / 100;
-                let statusType = 'exact'; // 'exact', 'discrepancy', 'manual_only', 'punch_only'
+                let statusType = 'exact';
                 let statusBadge = '';
 
                 if (manual && empPunches.length === 0) {
@@ -193,7 +268,6 @@
                     statusBadge = `<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px;">📍 بصمة بدون تسجيل يدوي</span>`;
                     totalPunchOnly++;
                 } else {
-                    // كلاهما موجود
                     if (Math.abs(hoursDiff) < 0.15) {
                         statusType = 'exact';
                         statusBadge = `<span class="badge" style="background:#dcfce7; color:#15803d; border:1px solid #86efac; font-size:11px;">تطابق تام ✅</span>`;
@@ -225,97 +299,187 @@
         });
 
         comparisonData = comparisonRows;
-        renderComparisonTableUI(comparisonRows);
+        attendanceReportData = reportRows;
 
-        // تحديث إحصائيات الـ KPIs
+        // تحديث إحصائيات التدقيق
         const totalAudited = comparisonRows.length;
         const matchPct = totalAudited > 0 ? Math.round((totalExactMatches / totalAudited) * 100) : 100;
 
-        document.getElementById('comp-kpi-total-audited').textContent = `${totalAudited} يوم`;
-        document.getElementById('comp-kpi-match-percent').textContent = `${matchPct}%`;
-        document.getElementById('comp-kpi-discrepancies').textContent = `${totalDiscrepancies} حالة`;
-        document.getElementById('comp-kpi-manual-only').textContent = `${totalManualOnly} يوم`;
-        document.getElementById('comp-kpi-excess-hours').textContent = `${totalExcessManualHours.toFixed(1)} س زائدة`;
+        const elAudited = document.getElementById('comp-kpi-total-audited');
+        const elMatch = document.getElementById('comp-kpi-match-percent');
+        const elDisc = document.getElementById('comp-kpi-discrepancies');
+        const elManualOnly = document.getElementById('comp-kpi-manual-only');
+        const elExcess = document.getElementById('comp-kpi-excess-hours');
+
+        if (elAudited) elAudited.textContent = `${totalAudited} يوم`;
+        if (elMatch) elMatch.textContent = `${matchPct}%`;
+        if (elDisc) elDisc.textContent = `${totalDiscrepancies} حالة`;
+        if (elManualOnly) elManualOnly.textContent = `${totalManualOnly} يوم`;
+        if (elExcess) elExcess.textContent = `${totalExcessManualHours.toFixed(1)} س زائدة`;
+
+        renderComparisonTableUI();
     }
 
-    // رسم الجدول في الصفحة
-    function renderComparisonTableUI(rows) {
-        const tableBody = document.getElementById('comp-table-tbody');
+    // رسم الجدول حسب الوضع النشط
+    function renderComparisonTableUI() {
+        const table = document.getElementById('comp-main-table');
         const emptyHint = document.getElementById('comp-empty-hint');
-        if (!tableBody) return;
+        if (!table) return;
 
-        let displayRows = rows.slice();
-        if (showDiscrepanciesOnly) {
-            displayRows = displayRows.filter(r => r.statusType !== 'exact');
-        }
+        if (currentAttendanceViewMode === 'report') {
+            // جدول تقرير الحضور والانصراف التفصيلي
+            let displayRows = attendanceReportData.slice();
 
-        if (displayRows.length === 0) {
-            tableBody.innerHTML = '';
-            if (emptyHint) emptyHint.style.display = 'block';
-            return;
-        }
-
-        if (emptyHint) emptyHint.style.display = 'none';
-
-        let html = '';
-        displayRows.forEach(r => {
-            let diffStyle = 'color:#64748b; font-weight:bold;';
-            let diffPrefix = '';
-            if (r.hoursDiff > 0) {
-                diffStyle = 'color:#b91c1c; font-weight:bold;'; // اليدوي أكثر من البصمة
-                diffPrefix = '+';
-            } else if (r.hoursDiff < 0) {
-                diffStyle = 'color:#d97706; font-weight:bold;'; // البصمة أكثر من اليدوي
-            } else {
-                diffStyle = 'color:#15803d; font-weight:bold;';
+            if (displayRows.length === 0) {
+                table.querySelector('tbody').innerHTML = '';
+                if (emptyHint) emptyHint.style.display = 'block';
+                return;
             }
+            if (emptyHint) emptyHint.style.display = 'none';
 
-            html += `
-                <tr>
-                    <td style="font-weight:bold;">${r.date}</td>
-                    <td style="font-weight:bold; color:#1e293b;">${r.empName}</td>
-                    <td>${r.dept}</td>
-                    <!-- بيانات البصمة -->
-                    <td style="background:#f0fdf4; font-family:Consolas, monospace;">${r.punchIn}</td>
-                    <td style="background:#f0fdf4; font-family:Consolas, monospace;">${r.punchOut}</td>
-                    <td style="background:#f0fdf4; font-weight:bold; font-family:Consolas, monospace;">${r.punchHours.toFixed(2)} س</td>
-                    <!-- بيانات الإدخال اليدوي -->
-                    <td style="background:#eff6ff; font-family:Consolas, monospace;">${r.manualIn}</td>
-                    <td style="background:#eff6ff; font-family:Consolas, monospace;">${r.manualOut}</td>
-                    <td style="background:#eff6ff; font-weight:bold; font-family:Consolas, monospace;">${r.manualHours.toFixed(2)} س</td>
-                    <!-- الفارق والحالة -->
-                    <td style="font-family:Consolas, monospace; ${diffStyle}">${diffPrefix}${r.hoursDiff.toFixed(2)} س</td>
-                    <td>${r.statusBadge}</td>
+            table.querySelector('thead').innerHTML = `
+                <tr style="background:#102a45; color:#fff; position:sticky; top:0; z-index:2;">
+                    <th style="padding:9px 7px; text-align:right;">اسم الموظف</th>
+                    <th style="padding:9px 7px;">القسم</th>
+                    <th style="padding:9px 7px;">التاريخ</th>
+                    <th style="padding:9px 7px; background:#1e3a8a;">أول دخول</th>
+                    <th style="padding:9px 7px; background:#1e3a8a;">آخر خروج</th>
+                    <th style="padding:9px 7px; font-weight:900; background:#0f172a;">إجمالي الساعات</th>
+                    <th style="padding:9px 7px; background:#065f46;">الساعات الأساسية</th>
+                    <th style="padding:9px 7px; background:#7c2d12;">ساعات الإضافي</th>
+                    <th style="padding:9px 7px;">طريقة التسجيل</th>
+                    <th style="padding:9px 7px;">الحالة والملاحظات</th>
                 </tr>
             `;
-        });
 
-        tableBody.innerHTML = html;
+            let html = '';
+            displayRows.forEach(r => {
+                html += `
+                    <tr>
+                        <td style="font-weight:bold; color:#1e293b; text-align:right;">${r.empName}</td>
+                        <td style="color:#475569;">${r.dept}</td>
+                        <td style="font-weight:bold; font-family:Consolas, monospace;">${r.date}</td>
+                        <td style="font-family:Consolas, monospace; font-weight:bold;">${r.firstIn}</td>
+                        <td style="font-family:Consolas, monospace; font-weight:bold;">${r.lastOut}</td>
+                        <td style="font-family:Consolas, monospace; font-weight:900; color:#102a45; background:#f8fafc;">${Number(r.totalHours).toFixed(2)} س</td>
+                        <td style="font-family:Consolas, monospace; font-weight:bold; color:#047857;">${Number(r.basicHours).toFixed(2)} س</td>
+                        <td style="font-family:Consolas, monospace; font-weight:bold; color:#c2410c;">${Number(r.ovHours).toFixed(2)} س</td>
+                        <td>
+                            <span class="badge" style="${r.badgeStyle}; font-weight:bold; font-size:11px; padding:3px 8px; border-radius:4px;">
+                                ${r.sourceLabel}
+                            </span>
+                        </td>
+                        <td style="font-size:11.5px; font-weight:bold;">${r.status}</td>
+                    </tr>
+                `;
+            });
+
+            table.querySelector('tbody').innerHTML = html;
+
+        } else {
+            // جدول مطابقة وتدقيق البصمة واليدوي
+            let displayRows = comparisonData.slice();
+            if (showDiscrepanciesOnly) {
+                displayRows = displayRows.filter(r => r.statusType !== 'exact');
+            }
+
+            if (displayRows.length === 0) {
+                table.querySelector('tbody').innerHTML = '';
+                if (emptyHint) emptyHint.style.display = 'block';
+                return;
+            }
+            if (emptyHint) emptyHint.style.display = 'none';
+
+            table.querySelector('thead').innerHTML = `
+                <tr style="background:#0f172a; color:#fff; position:sticky; top:0; z-index:2;">
+                    <th colspan="3" style="background:#1e293b; padding:8px;">بيانات الموظف والشيفت</th>
+                    <th colspan="3" style="background:#065f46; padding:8px;">📱 بيانات بصمة الموبايل الذكية (GPS)</th>
+                    <th colspan="3" style="background:#1e3a8a; padding:8px;">⏱️ بيانات الإدخال اليدوي المعتمد</th>
+                    <th colspan="2" style="background:#831843; padding:8px;">⚖️ نتائج التدقيق والفرق</th>
+                </tr>
+                <tr style="background:#f1f5f9; position:sticky; top:35px; z-index:2; font-size:11.5px;">
+                    <th style="padding:8px 6px;">التاريخ</th>
+                    <th style="padding:8px 6px; text-align:right;">الموظف</th>
+                    <th style="padding:8px 6px;">القسم</th>
+                    <th style="padding:8px 6px; color:#047857;">حضور GPS</th>
+                    <th style="padding:8px 6px; color:#047857;">انصراف GPS</th>
+                    <th style="padding:8px 6px; color:#047857; font-weight:bold;">ساعات GPS</th>
+                    <th style="padding:8px 6px; color:#1d4ed8;">حضور يدوي</th>
+                    <th style="padding:8px 6px; color:#1d4ed8;">انصراف يدوي</th>
+                    <th style="padding:8px 6px; color:#1d4ed8; font-weight:bold;">ساعات يدوي</th>
+                    <th style="padding:8px 6px;">فرق الساعات</th>
+                    <th style="padding:8px 6px;">حالة المطابقة</th>
+                </tr>
+            `;
+
+            let html = '';
+            displayRows.forEach(r => {
+                let diffStyle = 'color:#64748b; font-weight:bold;';
+                let diffPrefix = '';
+                if (r.hoursDiff > 0) {
+                    diffStyle = 'color:#b91c1c; font-weight:bold;';
+                    diffPrefix = '+';
+                } else if (r.hoursDiff < 0) {
+                    diffStyle = 'color:#d97706; font-weight:bold;';
+                } else {
+                    diffStyle = 'color:#15803d; font-weight:bold;';
+                }
+
+                html += `
+                    <tr>
+                        <td style="font-weight:bold;">${r.date}</td>
+                        <td style="font-weight:bold; color:#1e293b; text-align:right;">${r.empName}</td>
+                        <td>${r.dept}</td>
+                        <!-- بيانات البصمة -->
+                        <td style="background:#f0fdf4; font-family:Consolas, monospace;">${r.punchIn}</td>
+                        <td style="background:#f0fdf4; font-family:Consolas, monospace;">${r.punchOut}</td>
+                        <td style="background:#f0fdf4; font-weight:bold; font-family:Consolas, monospace;">${Number(r.punchHours).toFixed(2)} س</td>
+                        <!-- بيانات الإدخال اليدوي -->
+                        <td style="background:#eff6ff; font-family:Consolas, monospace;">${r.manualIn}</td>
+                        <td style="background:#eff6ff; font-family:Consolas, monospace;">${r.manualOut}</td>
+                        <td style="background:#eff6ff; font-weight:bold; font-family:Consolas, monospace;">${Number(r.manualHours).toFixed(2)} س</td>
+                        <!-- الفارق والحالة -->
+                        <td style="font-family:Consolas, monospace; ${diffStyle}">${diffPrefix}${Number(r.hoursDiff).toFixed(2)} س</td>
+                        <td>${r.statusBadge}</td>
+                    </tr>
+                `;
+            });
+
+            table.querySelector('tbody').innerHTML = html;
+        }
     }
 
     // زر التبديل: إظهار الفروقات فقط
-    function toggleShowDiscrepanciesOnly(checkbox) {
-        showDiscrepanciesOnly = checkbox ? checkbox.checked : !showDiscrepanciesOnly;
-        renderComparisonTableUI(comparisonData);
+    function toggleComparisonDiscrepancyOnly(btn) {
+        showDiscrepanciesOnly = !showDiscrepanciesOnly;
+        if (btn) {
+            btn.style.opacity = showDiscrepanciesOnly ? '1' : '0.7';
+            btn.style.border = showDiscrepanciesOnly ? '2px solid #b45309' : 'none';
+        }
+        renderComparisonTableUI();
     }
 
-    // طباعة تقرير المطابقة الرسمي
-    function printComparisonReportSheet() {
+    // طباعة التقرير
+    function printAttendanceComparisonReport() {
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
         const tableHtml = document.getElementById('comp-main-table').outerHTML;
-        const cycleText = document.getElementById('comp-cycle-select').options[document.getElementById('comp-cycle-select').selectedIndex].text;
+        const cycleSelect = document.getElementById('comp-cycle-select');
+        const cycleText = (cycleSelect && cycleSelect.options[cycleSelect.selectedIndex]) ? cycleSelect.options[cycleSelect.selectedIndex].text : '';
+        const reportTitle = (currentAttendanceViewMode === 'report') 
+            ? 'تقرير الحضور والانصراف التفصيلي' 
+            : 'تقرير مطابقة البصمة الذكية والإدخال اليدوي';
 
         const html = `
             <!DOCTYPE html>
             <html lang="ar" dir="rtl">
             <head>
                 <meta charset="UTF-8">
-                <title>تقرير مطابقة البصمة والإدخال اليدوي - عيادات سيدي ياقوت</title>
+                <title>${reportTitle} - عيادات سيدي ياقوت</title>
                 <style>
                     body { font-family: Tahoma, Arial, sans-serif; direction: rtl; padding: 15px; color: #000; }
-                    table { width: 100%; border-collapse: collapse; font-size: 10.5px; text-align: center; margin-top: 15px; }
-                    th, td { border: 1px solid #000; padding: 5px 6px; }
+                    table { width: 100%; border-collapse: collapse; font-size: 10px; text-align: center; margin-top: 15px; }
+                    th, td { border: 1px solid #000; padding: 4px 5px; }
                     th { background-color: #f1f5f9; font-weight: bold; }
                     .header-box { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #990012; padding-bottom: 8px; }
                 </style>
@@ -323,8 +487,8 @@
             <body>
                 <div class="header-box">
                     <div>
-                        <h2 style="margin:0; color:#102a45;">تقرير مطابقة وتدقيق البصمة الذكية (GPS) والإدخال اليدوي</h2>
-                        <div style="font-size:12px; color:#990012; font-weight:bold;">${cycleText}</div>
+                        <h2 style="margin:0; color:#102a45;">${reportTitle}</h2>
+                        <div style="font-size:12px; color:#990012; font-weight:bold; margin-top:3px;">${cycleText}</div>
                     </div>
                     <div style="font-size:11px;">تاريخ الطباعة: ${new Date().toLocaleDateString('ar-EG')}</div>
                 </div>
@@ -336,33 +500,43 @@
         printWindow.document.close();
     }
 
-    function exportComparisonReportToPdf() {
+    // تصدير PDF
+    function exportAttendanceComparisonToPdf() {
+        const tableHtml = document.getElementById('comp-main-table').outerHTML;
+        const cycleSelect = document.getElementById('comp-cycle-select');
+        const cycleText = (cycleSelect && cycleSelect.options[cycleSelect.selectedIndex]) ? cycleSelect.options[cycleSelect.selectedIndex].text : '';
+        const reportTitle = (currentAttendanceViewMode === 'report') ? 'تقرير_الحضور_التفصيلي' : 'تقرير_مطابقة_البصمة_واليدوي';
+
         if (typeof downloadPrintHtmlAsPdf === 'function') {
-            const tableHtml = document.getElementById('comp-main-table').outerHTML;
-            const cycleText = document.getElementById('comp-cycle-select').options[document.getElementById('comp-cycle-select').selectedIndex].text;
             const html = `
                 <div style="direction:rtl; font-family:Tahoma, Arial, sans-serif; padding:10px;">
-                    <h2 style="margin:0 0 6px 0; font-size:16px; color:#102a45;">تقرير مطابقة البصمة والإدخال اليدوي - ${cycleText}</h2>
+                    <h2 style="margin:0 0 6px 0; font-size:16px; color:#102a45;">${reportTitle.replace(/_/g, ' ')} - ${cycleText}</h2>
                     ${tableHtml}
                 </div>
             `;
-            downloadPrintHtmlAsPdf(html, 'تقرير_مطابقة_البصمة_واليدوي.pdf', 'landscape');
+            downloadPrintHtmlAsPdf(html, `${reportTitle}.pdf`, 'landscape');
         } else {
-            printComparisonReportSheet();
+            printAttendanceComparisonReport();
         }
     }
 
-    function exportComparisonReportToExcel() {
+    // تصدير Excel
+    function exportAttendanceComparisonToExcel() {
+        const reportTitle = (currentAttendanceViewMode === 'report') ? 'تقرير_الحضور_التفصيلي' : 'مطابقة_البصمة_واليدوي';
         if (typeof exportTableToExcel === 'function') {
-            exportTableToExcel('comp-main-table', 'مطابقة_البصمة_واليدوي');
+            exportTableToExcel('comp-main-table', reportTitle);
         }
     }
 
-    // تصدير الدوال
+    // تصدير الدوال للواجهة والنظام
     window.renderAttendanceComparisonScreen = renderAttendanceComparisonScreen;
+    window.setAttendanceReportViewMode = setAttendanceReportViewMode;
     window.loadAndCalculateComparisonReport = loadAndCalculateComparisonReport;
-    window.toggleShowDiscrepanciesOnly = toggleShowDiscrepanciesOnly;
-    window.printComparisonReportSheet = printComparisonReportSheet;
-    window.exportComparisonReportToPdf = exportComparisonReportToPdf;
-    window.exportComparisonReportToExcel = exportComparisonReportToExcel;
+    window.toggleComparisonDiscrepancyOnly = toggleComparisonDiscrepancyOnly;
+    window.printAttendanceComparisonReport = printAttendanceComparisonReport;
+    window.printComparisonReportSheet = printAttendanceComparisonReport;
+    window.exportAttendanceComparisonToPdf = exportAttendanceComparisonToPdf;
+    window.exportComparisonReportToPdf = exportAttendanceComparisonToPdf;
+    window.exportAttendanceComparisonToExcel = exportAttendanceComparisonToExcel;
+    window.exportComparisonReportToExcel = exportAttendanceComparisonToExcel;
 })();

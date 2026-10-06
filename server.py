@@ -79,8 +79,11 @@ def load_geofence_config():
 
 
 def save_geofence_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving geofence config: {e}")
 
 
 def calculate_haversine_distance(lat1, lon1, lat2, lon2):
@@ -106,12 +109,15 @@ def load_punches():
 
 
 def save_punch(punch_record):
-    punches = load_punches()
-    punches.insert(0, punch_record)
-    if len(punches) > 500:
-        punches = punches[:500]
-    with open(PUNCHES_FILE, "w", encoding="utf-8") as f:
-        json.dump(punches, f, ensure_ascii=False, indent=2)
+    try:
+        punches = load_punches()
+        punches.insert(0, punch_record)
+        if len(punches) > 500:
+            punches = punches[:500]
+        with open(PUNCHES_FILE, "w", encoding="utf-8") as f:
+            json.dump(punches, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving punch: {e}")
 
 
 @app.route("/api/geofence/config", methods=["GET", "POST"])
@@ -374,4 +380,4 @@ def static_files(path):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
