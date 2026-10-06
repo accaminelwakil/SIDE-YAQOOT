@@ -2612,22 +2612,23 @@
             <div class="table-wrap" style="max-height:560px; overflow-y:auto; background:#fff; border-radius:12px; border:1px solid #e2e8f0;">
                 <table id="punch-payroll-table" style="width:100%; font-size:12px; text-align:center;">
                     <thead>
-                        <tr style="background:#f8fafc; position:sticky; top:0; z-index:2;">
+                        <tr style="background:#f8fafc; position:sticky; top:0; z-index:2; border-bottom:2px solid #e2e8f0;">
                             <th style="padding:10px 8px;">الكود</th>
                             <th style="padding:10px 8px; text-align:right;">اسم الموظف</th>
                             <th style="padding:10px 8px;">القسم</th>
                             <th style="padding:10px 8px;">الراتب الأساسي</th>
-                            <th style="padding:10px 8px;">أيام الحضور</th>
                             <th style="padding:10px 8px;">ساعات أساسية</th>
-                            <th style="padding:10px 8px;">ساعات إضافي</th>
-                            <th style="padding:10px 8px;">إجمالي الساعات</th>
-                            <th style="padding:10px 8px;">مستحق الأساسي</th>
-                            <th style="padding:10px 8px;">مستحق الإضافي</th>
+                            <th style="padding:10px 8px;">إجمالي ساعات الإضافي</th>
+                            <th style="padding:10px 8px;">إضافي أول ساعة</th>
+                            <th style="padding:10px 8px;">ما يزيد عن ساعة وأقل من ساعتين</th>
+                            <th style="padding:10px 8px;">ما يزيد عن ساعتين</th>
+                            <th style="padding:10px 8px;">بدل الإجازات الرسمية</th>
                             <th style="padding:10px 8px;">إجمالي المستحق</th>
                             <th style="padding:10px 8px;">سجل البصمات</th>
                         </tr>
                     </thead>
                     <tbody id="punch-payroll-tbody"></tbody>
+                    <tfoot id="punch-payroll-tfoot"></tfoot>
                 </table>
                 <div id="punch-payroll-empty" style="display:none; text-align:center; padding:32px; color:#64748b;">
                     <div style="font-size:32px; margin-bottom:6px;">📱</div>

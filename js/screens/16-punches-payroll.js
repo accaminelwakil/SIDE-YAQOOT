@@ -116,87 +116,167 @@
         const emptyHint = document.getElementById('punch-payroll-empty');
         if (!tableBody) return;
 
+        const holidaysList = (typeof officialHolidaysDb !== 'undefined' && Array.isArray(officialHolidaysDb))
+            ? officialHolidaysDb
+            : JSON.parse(localStorage.getItem('erp_official_holidays_db') || '[]');
+
         let totalAttendeesCount = 0;
+        let grandTotalBasicSalary = 0;
         let grandTotalActualHours = 0;
         let grandTotalBasicHours = 0;
         let grandTotalOvHours = 0;
+        let grandTotalOv1Hours = 0;
+        let grandTotalOv2Hours = 0;
+        let grandTotalOvMoreHours = 0;
+        let grandTotalHolidayHours = 0;
         let grandTotalNetWages = 0;
 
         let rowsHtml = '';
         targetEmps.forEach((emp, index) => {
-            // استخراج حركات الموظف في نطاق الدورة
-            const empPunches = currentPunchesList.filter(p => {
-                if (String(p.empId) !== String(emp.id) && p.empName !== emp.name) return false;
-                const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
-                return pDate >= startDate && pDate <= endDate && (p.status === 'ACCEPTED' || !p.status);
-            });
-
-            // تجميع الحركات باليوم لحساب الساعات
-            const daysMap = {};
-            empPunches.forEach(p => {
-                const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
-                if (!daysMap[pDate]) daysMap[pDate] = [];
-                daysMap[pDate].push(p);
-            });
-
-            let totalActualHours = 0;
-            let totalBasicHours = 0;
-            let totalOvHours = 0;
-            let daysAttendedCount = Object.keys(daysMap).length;
-
             const shiftH = Number(emp.shiftHours) || 8;
             const basicMonthly = Number(emp.basicSalary) || 0;
-            const hourlyRate = (basicMonthly / (30 * shiftH)) || 0;
 
-            Object.keys(daysMap).forEach(d => {
-                const dayPunches = daysMap[d].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-                const ins = dayPunches.filter(p => p.type === 'in');
-                const outs = dayPunches.filter(p => p.type === 'out');
+            let totActualHours = 0;
+            let totBasicHours = 0;
+            let totOvHours = 0;
+            let totOv1Hours = 0;
+            let totOv2Hours = 0;
+            let totOvMoreHours = 0;
+            let holidayHours = 0;
+            let workedHolidaysCount = 0;
+            let daysAttendedCount = 0;
 
-                let dayHours = 0;
-                if (ins.length > 0 && outs.length > 0) {
-                    const firstIn = ins[0].time;
-                    const lastOut = outs[outs.length - 1].time;
-                    const [h1, m1] = firstIn.split(':').map(Number);
-                    const [h2, m2] = lastOut.split(':').map(Number);
-                    let diffMins = (h2 * 60 + m2) - (h1 * 60 + m1);
-                    if (diffMins < 0) diffMins += 24 * 60; // للورديات الليلية العابرة لمنتصف الليل
-                    dayHours = Math.round((diffMins / 60) * 100) / 100;
-                } else if (ins.length > 0) {
-                    // افتراضي شيفت كامل إن سجل دخول فقط بدون خروج
-                    dayHours = shiftH;
-                }
+            if (punchPayrollMode === 'punch') {
+                // استخراج حركات الموظف في نطاق الدورة من البصمة
+                const empPunches = currentPunchesList.filter(p => {
+                    if (String(p.empId) !== String(emp.id) && p.empName !== emp.name) return false;
+                    const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
+                    return pDate >= startDate && pDate <= endDate && (p.status === 'ACCEPTED' || !p.status);
+                });
 
-                totalActualHours += dayHours;
-                const reg = Math.min(dayHours, shiftH);
-                totalBasicHours += reg;
-                totalOvHours += Math.max(0, dayHours - shiftH);
-            });
+                // تجميع الحركات باليوم لحساب الساعات
+                const daysMap = {};
+                empPunches.forEach(p => {
+                    const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
+                    if (!daysMap[pDate]) daysMap[pDate] = [];
+                    daysMap[pDate].push(p);
+                });
+
+                daysAttendedCount = Object.keys(daysMap).length;
+
+                Object.keys(daysMap).forEach(d => {
+                    const dayPunches = daysMap[d].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+                    const ins = dayPunches.filter(p => p.type === 'in');
+                    const outs = dayPunches.filter(p => p.type === 'out');
+
+                    let dayHours = 0;
+                    if (ins.length > 0 && outs.length > 0) {
+                        const firstIn = ins[0].time;
+                        const lastOut = outs[outs.length - 1].time;
+                        const [h1, m1] = firstIn.split(':').map(Number);
+                        const [h2, m2] = lastOut.split(':').map(Number);
+                        let diffMins = (h2 * 60 + m2) - (h1 * 60 + m1);
+                        if (diffMins < 0) diffMins += 24 * 60; // للورديات الليلية العابرة لمنتصف الليل
+                        dayHours = Math.round((diffMins / 60) * 100) / 100;
+                    } else if (ins.length > 0) {
+                        // افتراضي شيفت كامل إن سجل دخول فقط بدون خروج
+                        dayHours = shiftH;
+                    }
+
+                    totActualHours += dayHours;
+                    const reg = Math.min(dayHours, shiftH);
+                    totBasicHours += reg;
+
+                    const dayOv = Math.max(0, Math.round((dayHours - shiftH) * 100) / 100);
+                    totOvHours += dayOv;
+
+                    // تحليل الإضافي: أول ساعة - ما بين ساعة وساعتين - ما يزيد عن ساعتين
+                    const dayOv1 = Math.min(dayOv, 1.0);
+                    const dayOv2 = Math.min(Math.max(0, Math.round((dayOv - 1.0) * 100) / 100), 1.0);
+                    const dayOvMore = Math.max(0, Math.round((dayOv - 2.0) * 100) / 100);
+
+                    totOv1Hours += dayOv1;
+                    totOv2Hours += dayOv2;
+                    totOvMoreHours += dayOvMore;
+
+                    // بدل الإجازات الرسمية (ساعات العمل بالإجازات)
+                    const isHol = holidaysList.includes(d);
+                    if (isHol && dayHours > 0) {
+                        holidayHours += dayHours;
+                        workedHolidaysCount++;
+                    }
+                });
+            } else {
+                // الوضع اليدوي المعتمد من شاشة الحضور والانصراف
+                const empRecords = (window.attendanceRecords || []).filter(r => {
+                    return String(r.empId) === String(emp.id) && (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate);
+                });
+
+                daysAttendedCount = new Set(empRecords.map(r => r.date)).size;
+
+                empRecords.forEach(r => {
+                    const bH = Number(r.basicHours) || 0;
+                    const o1 = Number(r.ov1) || 0;
+                    const o2 = Number(r.ov2) || 0;
+                    const om = Number(r.ovMore) || 0;
+                    const totOv = Math.round((o1 + o2 + om) * 100) / 100;
+                    const totH = Number(r.hours) || (bH + totOv);
+
+                    totActualHours += totH;
+                    totBasicHours += bH;
+                    totOvHours += totOv;
+                    totOv1Hours += o1;
+                    totOv2Hours += o2;
+                    totOvMoreHours += om;
+
+                    const isHol = r.isHoliday || holidaysList.includes(r.date);
+                    if (isHol && totH > 0) {
+                        holidayHours += totH;
+                        workedHolidaysCount++;
+                    }
+                });
+            }
 
             if (daysAttendedCount > 0) totalAttendeesCount++;
 
-            // احتساب الراتب بناءً على الساعات الفعلية ومعدلات الإضافي
-            const ovRate = hourlyRate * 1.25; // متوسط تقريبي للإضافي
-            const basicWage = totalBasicHours * hourlyRate;
-            const ovWage = totalOvHours * ovRate;
-            const netPunchWage = Math.round((basicWage + ovWage) * 100) / 100;
+            // احتساب الراتب بناءً على الساعات الفعلية ومعدلات الإضافي والبدلات
+            const rates = (typeof computeRates === 'function')
+                ? computeRates(basicMonthly, shiftH)
+                : {
+                    hourlyRate: (basicMonthly / (30 * shiftH)) || 0,
+                    ov1: (basicMonthly / (30 * shiftH)) * 1.35 || 0,
+                    ov2: (basicMonthly / (30 * shiftH)) * 1.75 || 0,
+                    ovMore: (basicMonthly / (30 * shiftH)) * 2.0 || 0
+                  };
 
-            grandTotalActualHours += totalActualHours;
-            grandTotalBasicHours += totalBasicHours;
-            grandTotalOvHours += totalOvHours;
+            const dailyBasicRate = basicMonthly / 30;
+            const holidayAllowance = Math.round((workedHolidaysCount * dailyBasicRate) * 100) / 100;
+            const basicWage = Math.round((totBasicHours * (rates.hourlyRate || 0)) * 100) / 100;
+            const ovWage = Math.round(((totOv1Hours * (rates.ov1 || 0)) + (totOv2Hours * (rates.ov2 || 0)) + (totOvMoreHours * (rates.ovMore || 0))) * 100) / 100;
+            const netPunchWage = Math.round((basicWage + ovWage + holidayAllowance) * 100) / 100;
+
+            grandTotalBasicSalary += basicMonthly;
+            grandTotalActualHours += totActualHours;
+            grandTotalBasicHours += totBasicHours;
+            grandTotalOvHours += totOvHours;
+            grandTotalOv1Hours += totOv1Hours;
+            grandTotalOv2Hours += totOv2Hours;
+            grandTotalOvMoreHours += totOvMoreHours;
+            grandTotalHolidayHours += holidayHours;
             grandTotalNetWages += netPunchWage;
 
             rowsHtml += `
                 <tr>
                     <td style="font-weight:bold; font-family:Consolas, monospace;">#${emp.id}</td>
-                    <td style="font-weight:bold; color:#1e293b;">${emp.name}</td>
+                    <td style="font-weight:bold; color:#1e293b; text-align:right;">${emp.name}</td>
                     <td>${emp.job || '-'}</td>
-                    <td style="font-weight:bold;">${daysAttendedCount} يوم</td>
-                    <td style="font-weight:bold; font-family:Consolas, monospace;">${totalActualHours.toFixed(2)} س</td>
-                    <td style="font-family:Consolas, monospace;">${totalBasicHours.toFixed(2)} س</td>
-                    <td style="color:#059669; font-weight:bold; font-family:Consolas, monospace;">${totalOvHours.toFixed(2)} س</td>
-                    <td style="font-family:Consolas, monospace;">${basicMonthly.toLocaleString()} ج.م</td>
-                    <td style="font-family:Consolas, monospace; font-size:11.5px;">${hourlyRate.toFixed(2)} ج.م</td>
+                    <td style="font-weight:bold; font-family:Consolas, monospace; color:#0f172a;">${basicMonthly.toLocaleString('ar-EG')} ج.م</td>
+                    <td style="font-family:Consolas, monospace; font-weight:600; color:#2563eb;">${totBasicHours.toFixed(2)} س</td>
+                    <td style="font-family:Consolas, monospace; font-weight:bold; color:#059669;">${totOvHours.toFixed(2)} س</td>
+                    <td style="font-family:Consolas, monospace; color:#10b981;">${totOv1Hours.toFixed(2)} س</td>
+                    <td style="font-family:Consolas, monospace; color:#d97706;">${totOv2Hours.toFixed(2)} س</td>
+                    <td style="font-family:Consolas, monospace; color:#dc2626;">${totOvMoreHours.toFixed(2)} س</td>
+                    <td style="font-family:Consolas, monospace; font-weight:600; color:#7c3aed;">${holidayHours > 0 ? `${holidayHours.toFixed(2)} س` : '0.00 س'}</td>
                     <td style="font-weight:bold; font-size:13px; color:#102a45; font-family:Consolas, monospace;">${netPunchWage.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م</td>
                     <td>
                         <button type="button" class="btn-secondary" style="padding:4px 8px; font-size:11px; min-height:28px;" onclick="viewEmployeePunchesDetail('${emp.id}')" title="عرض تفاصيل بصمات الموظف">🔍 حركات البصمة</button>
@@ -206,6 +286,29 @@
         });
 
         tableBody.innerHTML = rowsHtml;
+
+        const tfoot = document.getElementById('punch-payroll-tfoot');
+        if (tfoot) {
+            if (targetEmps.length > 0) {
+                tfoot.innerHTML = `
+                    <tr style="background:#f1f5f9; font-weight:bold; border-top:2px solid #cbd5e1;">
+                        <td colspan="3" style="padding:10px 8px; text-align:right;">الإجمالي (${targetEmps.length} موظف):</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace;">${grandTotalBasicSalary.toLocaleString('ar-EG')} ج.م</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace; color:#2563eb;">${grandTotalBasicHours.toFixed(2)} س</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace; color:#059669;">${grandTotalOvHours.toFixed(2)} س</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace; color:#10b981;">${grandTotalOv1Hours.toFixed(2)} س</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace; color:#d97706;">${grandTotalOv2Hours.toFixed(2)} س</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace; color:#dc2626;">${grandTotalOvMoreHours.toFixed(2)} س</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace; color:#7c3aed;">${grandTotalHolidayHours.toFixed(2)} س</td>
+                        <td style="padding:10px 8px; font-family:Consolas, monospace; color:#102a45;">${grandTotalNetWages.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م</td>
+                        <td>-</td>
+                    </tr>
+                `;
+            } else {
+                tfoot.innerHTML = '';
+            }
+        }
+
         if (targetEmps.length === 0) {
             if (emptyHint) emptyHint.style.display = 'block';
         } else {
@@ -213,11 +316,17 @@
         }
 
         // تحديث كروت الـ KPI
-        document.getElementById('punch-kpi-attendees').textContent = `${totalAttendeesCount} موظف`;
-        document.getElementById('punch-kpi-total-hours').textContent = `${grandTotalActualHours.toFixed(1)} س`;
-        document.getElementById('punch-kpi-basic-hours').textContent = `${grandTotalBasicHours.toFixed(1)} س`;
-        document.getElementById('punch-kpi-overtime-hours').textContent = `${grandTotalOvHours.toFixed(1)} س`;
-        document.getElementById('punch-kpi-net-wages').textContent = `${grandTotalNetWages.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م`;
+        const kpiAtt = document.getElementById('punch-kpi-attendees');
+        const kpiTot = document.getElementById('punch-kpi-total-hours');
+        const kpiBas = document.getElementById('punch-kpi-basic-hours');
+        const kpiOv = document.getElementById('punch-kpi-overtime-hours');
+        const kpiNet = document.getElementById('punch-kpi-net-wages');
+
+        if (kpiAtt) kpiAtt.textContent = `${totalAttendeesCount} موظف`;
+        if (kpiTot) kpiTot.textContent = `${grandTotalActualHours.toFixed(1)} س`;
+        if (kpiBas) kpiBas.textContent = `${grandTotalBasicHours.toFixed(1)} س`;
+        if (kpiOv) kpiOv.textContent = `${grandTotalOvHours.toFixed(1)} س`;
+        if (kpiNet) kpiNet.textContent = `${grandTotalNetWages.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م`;
     }
 
     // تبديل وضع طريقة احتساب الرواتب الرسمية (يدوي vs بصمة)
@@ -225,12 +334,14 @@
         punchPayrollMode = mode;
         localStorage.setItem('erp_payroll_calc_mode', mode);
         updatePayrollModeDisplay();
+        calculateAndRenderPunchesPayroll();
 
         if (typeof showToast === 'function') {
             const title = (mode === 'punch') ? '📍 تم تفعيل الاعتماد على بصمة الموظف لحساب الرواتب' : '✍️ تم تفعيل الاعتماد على الإدخال اليدوي لحساب الرواتب';
             showToast(title, 'success');
         }
     }
+    window.switchPayrollCalculationMode = setPayrollCalculationMode;
 
     function updatePayrollModeDisplay() {
         const btnManual = document.getElementById('btn-mode-manual-payroll');
