@@ -2251,6 +2251,48 @@
             }
         }
 
+        /* =========================================================================
+           Custom Modal Global Centered Popup Styles
+           ========================================================================= */
+        .custom-modal-backdrop {
+            position: fixed !important;
+            inset: 0 !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background: rgba(15, 23, 42, 0.6) !important;
+            backdrop-filter: blur(4px) !important;
+            z-index: 99999 !important;
+            display: none;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 16px !important;
+            box-sizing: border-box !important;
+        }
+
+        .custom-modal-backdrop[style*="display: flex"],
+        .custom-modal-backdrop[style*="display:flex"] {
+            display: flex !important;
+        }
+
+        .custom-modal-box {
+            background: #ffffff;
+            border-radius: 14px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+            margin: auto !important;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            box-sizing: border-box;
+            animation: modalCenterPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes modalCenterPop {
+            0% { transform: scale(0.95); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
 
         /* =========================================================================
            Geofencing (GPS) Smart Attendance & Mobile Verification Styles

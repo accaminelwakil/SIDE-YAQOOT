@@ -543,7 +543,9 @@
 
             if (tbody) {
                 if (punches.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">لا توجد بصمات جغرافية مسجلة حتى الآن.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:25px; color:#64748b; background:#f8fafc;">لا توجد بصمات جغرافية مسجلة حتى الآن.</td></tr>`;
+                    const countBadge = document.getElementById('punches-log-count-badge');
+                    if (countBadge) countBadge.textContent = '0';
                     return;
                 }
 
@@ -551,32 +553,35 @@
                     const isAccepted = (p.status === 'ACCEPTED');
                     const statusBadge = isInsideBadge(isAccepted);
                     const typeBadge = p.type === 'in'
-                        ? `<span class="badge" style="background:#ecfdf5; color:#065f46; font-weight:bold;">🟢 حضور</span>`
-                        : `<span class="badge" style="background:#fff1f2; color:#9f1239; font-weight:bold;">🔴 انصراف</span>`;
+                        ? `<span class="badge" style="background:#ecfdf5; color:#065f46; font-weight:bold; padding:3px 8px; border-radius:6px;">🟢 حضور</span>`
+                        : `<span class="badge" style="background:#fff1f2; color:#9f1239; font-weight:bold; padding:3px 8px; border-radius:6px;">🔴 انصراف</span>`;
 
                     const mapLink = `https://www.google.com/maps?q=${p.latitude},${p.longitude}`;
 
                     return `
-                        <tr>
-                            <td style="text-align:center; font-weight:bold;">${idx + 1}</td>
-                            <td>
-                                <b>${p.empName || 'موظف'}</b>
+                        <tr style="border-bottom: 1px solid #e2e8f0; background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                            <td style="text-align:center; font-weight:bold; color:#475569; padding:9px 8px;">${idx + 1}</td>
+                            <td style="text-align:right; padding:9px 10px;">
+                                <b style="color:#0f172a; font-size:13px;">${p.empName || 'موظف'}</b>
                                 <div style="font-size:11px; color:#64748b;">كود: ${p.empId || '-'}</div>
                             </td>
-                            <td style="text-align:center;">${typeBadge}</td>
-                            <td style="text-align:center; font-family:Consolas, monospace;">${p.date} ${p.time}</td>
-                            <td style="text-align:center; font-weight:bold;">${p.distance_meters} م <span style="font-size:10px; color:#64748b;">(أقصى: ${p.allowed_radius}م)</span></td>
-                            <td style="text-align:center;">${statusBadge}</td>
-                            <td style="text-align:center;">
-                                <a href="${mapLink}" target="_blank" class="btn-sm" style="background:#e0f2fe; color:#0369a1; text-decoration:none; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:bold;">🗺️ الخريطة</a>
+                            <td style="text-align:center; padding:9px 8px;">${typeBadge}</td>
+                            <td style="text-align:center; font-family:Consolas, monospace; color:#334155; padding:9px 8px;">${p.date} ${p.time}</td>
+                            <td style="text-align:center; font-weight:bold; color:#0f172a; padding:9px 8px;">${p.distance_meters} م <span style="font-size:10px; color:#64748b; font-weight:normal;">(أقصى: ${p.allowed_radius}م)</span></td>
+                            <td style="text-align:center; padding:9px 8px;">${statusBadge}</td>
+                            <td style="text-align:center; padding:9px 8px;">
+                                <a href="${mapLink}" target="_blank" class="btn-sm" style="background:#f1f5f9; border:1px solid #cbd5e1; color:#0369a1; text-decoration:none; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:bold; display:inline-block;">🗺️ الخريطة</a>
                             </td>
                         </tr>
                     `;
                 }).join('');
+
+                const countBadge = document.getElementById('punches-log-count-badge');
+                if (countBadge) countBadge.textContent = String(punches.length);
             }
         } catch (e) {
             if (tbody) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#ef4444;">تعذر تحميل السجل من السيرفر.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#ef4444; background:#fef2f2;">تعذر تحميل السجل من السيرفر.</td></tr>`;
             }
         }
     }
