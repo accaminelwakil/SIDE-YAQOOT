@@ -282,6 +282,8 @@ def auth_login_api():
                     legacy_ref = db.collection("sidi_yaqout_auth").document(auth_user_key(legacy_username))
                     if not legacy_ref.get().exists:
                         legacy_ref.set(hash_password(str(legacy_user["pin"])))
+                if isinstance(legacy_user, dict):
+                    legacy_user["hasChangedPassword"] = False
             sanitized_users = [public_user_profile(entry) for entry in users if isinstance(entry, dict)]
             user_profiles_document(db).set({"list": sanitized_users}, merge=True)
 
