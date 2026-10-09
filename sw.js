@@ -3,7 +3,7 @@
 // PWA & TWA Full Offline Support & PWABuilder Optimized
 // ====================================================================
 
-const CACHE_NAME = 'sidi-yaqout-v6';
+const CACHE_NAME = 'sidi-yaqout-v7';
 
 const CORE_FILES = [
     '/',
@@ -38,6 +38,7 @@ const CORE_FILES = [
     '/js/utils/geofence-service.js',
     '/js/app-state.js',
     '/js/app.js',
+    '/js/config/firebase-sample-config.js',
     '/js/services/firebase-service.js',
     '/js/screens/01-dashboard.js',
     '/js/screens/02-employees.js',

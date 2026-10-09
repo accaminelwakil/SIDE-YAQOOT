@@ -111,8 +111,13 @@
                 }
             }
 
-            const config = { ...SIDI_YAQOOT_FIREBASE_CONFIG, ...savedConfig };
-            config.apiKey = savedConfig.apiKey || SIDI_YAQOOT_FIREBASE_CONFIG.apiKey;
+            const defaultConfig = window.SIDI_YAQOOT_FIREBASE_CONFIG;
+            if (!defaultConfig || !defaultConfig.apiKey) {
+                throw new Error('لم يتم تحميل إعدادات Firebase الافتراضية. أعد تحميل التطبيق أو تحقق من ملفات النشر.');
+            }
+
+            const config = { ...defaultConfig, ...savedConfig };
+            config.apiKey = savedConfig.apiKey || defaultConfig.apiKey;
             localStorage.setItem('erp_firebase_config', JSON.stringify(config));
 
             currentFirebaseConfig = config;

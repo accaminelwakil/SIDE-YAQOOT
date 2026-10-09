@@ -3,7 +3,7 @@
 // مشروع: sidi-yaqout-clinics
 // =========================================================================
 
-const SIDI_YAQOUT_FIREBASE_CONFIG = {
+window.SIDI_YAQOOT_FIREBASE_CONFIG = {
     apiKey: "AIzaSyAi0E18RgaL2HeOeR-jvha1OFYO9f-vAhc",
     authDomain: "sidi-yaqout-clinics.firebaseapp.com",
     projectId: "sidi-yaqout-clinics",
