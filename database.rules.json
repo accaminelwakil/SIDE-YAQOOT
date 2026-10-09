@@ -1,0 +1,57 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "sidi_yaqout_erp": {
+      ".write": "auth != null && auth.token.role == 'admin'",
+      "metadata": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.token.role == 'admin'"
+      },
+      "users": {
+        ".read": "auth != null && auth.token.role == 'admin'",
+        ".write": "auth != null && auth.token.role == 'admin'"
+      },
+      "employees": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-employees'] == 'edit')"
+      },
+      "departments": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-employees'] == 'edit')"
+      },
+      "attendance": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-attendance'] == 'edit')"
+      },
+      "salaryAdjustments": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-salary-adjustments'] == 'edit')"
+      },
+      "payrollDelivery": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-delivery'] == 'edit')"
+      },
+      "payrollCycles": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-summary'] == 'edit')"
+      },
+      "officialHolidays": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-attendance'] == 'edit')"
+      },
+      "notifications": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "leavesPermissions": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-leaves-permissions'] in ['view', 'edit'])"
+      },
+      "_system_ping": {
+        ".read": "auth != null && auth.token.role == 'admin'",
+        ".write": "auth != null && auth.token.role == 'admin'"
+      }
+    }
+  }
+}

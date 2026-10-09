@@ -6,6 +6,7 @@
     <title>منظومة إدارة رواتب عيادات سيدى ياقوت التخصصية</title>
     <!-- Firebase SDK Scripts (Compat versions for client-side web integration) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <!-- Library for direct PDF generation and export (Local offline bundle with CDN fallback) -->
@@ -521,7 +522,7 @@
                                 <div class="field">
                                     <label>كلمة المرور / الرمز السري (PIN) *</label>
                                     <div style="position:relative;">
-                                        <input type="password" id="new-emp-password" value="1234" placeholder="أدخل كلمة مرور الموظف" style="width:100%; padding-left:38px;">
+                                        <input type="password" id="new-emp-password" minlength="8" placeholder="أدخل كلمة مرور من 8 أحرف على الأقل" style="width:100%; padding-left:38px;">
                                         <button type="button" onclick="togglePasswordVisibility('new-emp-password', this)" style="position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:15px; color:var(--text-muted);">👁️</button>
                                     </div>
                                 </div>
@@ -2237,7 +2238,7 @@
                                 <th>الاسم الظاهر</th>
                                 <th>الدور المقترح</th>
                                 <th>صلاحيات الشاشات المسموحة</th>
-                                <th>كلمة المرور</th>
+                                <th>حالة كلمة المرور</th>
                                 <th>تاريخ الإنشاء</th>
                                 <th>الحالة</th>
                                 <th>إجراءات</th>
@@ -2973,7 +2974,7 @@
                 <button type="submit" class="btn-primary" style="flex:1; justify-content:center;">✔ تسجيل الدخول</button>
                 <button type="button" class="btn-secondary" onclick="closeSwitchUserModal()">إلغاء</button>
             </div>
-            <button type="button" class="btn-secondary" style="font-size:11.5px; padding:7px 12px; width:100%; margin-top:10px; justify-content:center; color:var(--accent); border:1px dashed var(--accent);" onclick="openEmployeeSelfRegisterModal()">📝 موظف جديد؟ اضغط هنا لتسجيل حسابك</button>
+            <p style="font-size:11.5px; text-align:center; margin:10px 0 0; color:var(--text-muted);">لإنشاء حساب موظف جديد، يرجى التواصل مع مدير النظام.</p>
         </form>
     </div>
 </div>

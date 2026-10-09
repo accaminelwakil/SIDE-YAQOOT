@@ -212,7 +212,7 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
             return;
         }
 
-        let html = '';
+        listContainer.replaceChildren();
         userNotifs.slice(0, 35).forEach(n => {
             let icon = '🔔';
             let iconBg = '#f1f5f9';
@@ -241,27 +241,50 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
             const unreadStyle = !n.isRead ? 'background:#f0fdf4; border-right:4px solid #10b981;' : 'background:#ffffff; border-right:4px solid transparent;';
             const timeAgo = formatTimeAgo(n.createdAt);
 
-            html += `
-                <div class="notif-item" onclick="onNotificationClicked('${n.id}', '${n.actionScreen || ''}')" style="display:flex; gap:10px; padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.2s; ${unreadStyle}">
-                    <div style="width:38px; height:38px; border-radius:50%; background:${iconBg}; color:${iconColor}; display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0;">
-                        ${icon}
-                    </div>
-                    <div style="flex:1; min-width:0;">
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
-                            <div style="font-weight:bold; font-size:13px; color:#1e293b;">${n.title}</div>
-                            <span style="font-size:10px; color:#94a3b8; white-space:nowrap;">${timeAgo}</span>
-                        </div>
-                        <div style="font-size:12px; color:#475569; margin-top:3px; line-height:1.45;">${n.message}</div>
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px; font-size:10.5px; color:#64748b;">
-                            <span>بواسطة: <strong>${n.senderName}</strong></span>
-                            ${!n.isRead ? '<span style="color:#059669; font-weight:bold;">• جديد</span>' : ''}
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
+            const item = document.createElement('div');
+            item.className = 'notif-item';
+            item.style.cssText = `display:flex; gap:10px; padding:12px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background 0.2s; ${unreadStyle}`;
+            item.addEventListener('click', () => onNotificationClicked(n.id, n.actionScreen || ''));
 
-        listContainer.innerHTML = html;
+            const iconBox = document.createElement('div');
+            iconBox.style.cssText = `width:38px; height:38px; border-radius:50%; background:${iconBg}; color:${iconColor}; display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0;`;
+            iconBox.textContent = icon;
+
+            const body = document.createElement('div');
+            body.style.cssText = 'flex:1; min-width:0;';
+            const heading = document.createElement('div');
+            heading.style.cssText = 'display:flex; justify-content:space-between; align-items:flex-start; gap:6px;';
+            const title = document.createElement('div');
+            title.style.cssText = 'font-weight:bold; font-size:13px; color:#1e293b;';
+            title.textContent = String(n.title || '');
+            const time = document.createElement('span');
+            time.style.cssText = 'font-size:10px; color:#94a3b8; white-space:nowrap;';
+            time.textContent = timeAgo;
+            heading.append(title, time);
+
+            const message = document.createElement('div');
+            message.style.cssText = 'font-size:12px; color:#475569; margin-top:3px; line-height:1.45;';
+            message.textContent = String(n.message || '');
+
+            const footer = document.createElement('div');
+            footer.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-top:5px; font-size:10.5px; color:#64748b;';
+            const sender = document.createElement('span');
+            sender.append('بواسطة: ');
+            const senderName = document.createElement('strong');
+            senderName.textContent = String(n.senderName || '');
+            sender.appendChild(senderName);
+            footer.appendChild(sender);
+            if (!n.isRead) {
+                const fresh = document.createElement('span');
+                fresh.style.cssText = 'color:#059669; font-weight:bold;';
+                fresh.textContent = '• جديد';
+                footer.appendChild(fresh);
+            }
+
+            body.append(heading, message, footer);
+            item.append(iconBox, body);
+            listContainer.appendChild(item);
+        });
     }
 
     // ── 9. عند النقر على إشعار معين ──
@@ -349,7 +372,7 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
 
         isLocalServerSyncInProgress = true;
         try {
-            const resp = await fetch('/api/notifications/sync', {
+            const resp = await window.authenticatedFetch('/api/notifications/sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ notifications: notificationsDb.slice(0, 100) }),

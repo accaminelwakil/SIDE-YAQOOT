@@ -146,65 +146,15 @@
 
     const ALL_SCREEN_IDS = ALL_SYSTEM_SCREENS.map(s => s.id);
 
-    // المستخدمين الافتراضيين بصلاحياتهم المعيارية (اطلاع وتعديل)
-    const DEFAULT_USERS = [
-        {
-            username: 'admin',
-            fullName: 'المدير العام',
-            role: 'admin',
-            pin: '1234',
-            permissions: [...ALL_SCREEN_IDS],
-            screenAccess: ALL_SCREEN_IDS.reduce((acc, sid) => ({ ...acc, [sid]: 'edit' }), {}),
-            createdAt: '2026-01-01'
-        },
-        {
-            username: 'hesabat',
-            fullName: 'أ. عاطف (الحسابات)',
-            role: 'accountant',
-            pin: '1234',
-            permissions: [
-                'screen-welcome', 'screen-employees', 'screen-attendance', 'screen-salary-adjustments',
-                'screen-payroll-summary', 'screen-single-sarki', 'screen-bulk-payslips', 'screen-payroll-delivery',
-                'screen-emp-general-report', 'screen-totals-report', 'screen-backup-restore', 'screen-firebase-settings',
-                'screen-leaves-permissions', 'screen-punches-payroll', 'screen-attendance-comparison'
-            ],
-            screenAccess: {
-                'screen-welcome': 'view',
-                'screen-employees': 'view',
-                'screen-attendance': 'view',
-                'screen-salary-adjustments': 'edit',
-                'screen-payroll-summary': 'edit',
-                'screen-single-sarki': 'edit',
-                'screen-bulk-payslips': 'edit',
-                'screen-payroll-delivery': 'edit',
-                'screen-emp-general-report': 'view',
-                'screen-totals-report': 'view',
-                'screen-backup-restore': 'edit',
-                'screen-firebase-settings': 'edit',
-                'screen-leaves-permissions': 'edit',
-                'screen-punches-payroll': 'edit',
-                'screen-attendance-comparison': 'view'
-            },
-            createdAt: '2026-01-01'
-        },
-        {
-            username: 'moshref',
-            fullName: 'مشرف الحضور',
-            role: 'supervisor',
-            pin: '1234',
-            permissions: ['screen-welcome', 'screen-attendance'],
-            screenAccess: {
-                'screen-welcome': 'view',
-                'screen-attendance': 'edit'
-            },
-            createdAt: '2026-01-01'
-        }
-    ];
+    const DEFAULT_USERS = [];
 
     // ترحيل وتأكيد وجود مصفوفة الصلاحيات وخريطة الاطلاع والتعديل لكل مستخدم
     function migrateUsersDb(db) {
         if (!Array.isArray(db) || db.length === 0) return DEFAULT_USERS;
         return db.map(u => {
+            delete u.pin;
+            delete u.password;
+            delete u.passwordHash;
             if (!u.screenAccess || typeof u.screenAccess !== 'object') {
                 u.screenAccess = {};
                 if (u.role === 'admin') {
@@ -245,23 +195,6 @@
     // حالة المصادقة (Authentication State)
     let isUserAuthenticated = false;
     let currentUser = null;
-
-    // استعادة جلسة العمل إن وجدت
-    const authSessionRaw = sessionStorage.getItem('erp_auth_session');
-    if (authSessionRaw) {
-        try {
-            const parsed = JSON.parse(authSessionRaw);
-            const found = usersDb.find(u => u.username.toLowerCase() === (parsed.username || '').toLowerCase());
-            if (found) {
-                currentUser = found;
-                isUserAuthenticated = true;
-            }
-        } catch(e) {}
-    }
-
-    if (!currentUser) {
-        currentUser = usersDb[0];
-    }
 
     window.usersDb = usersDb;
     window.currentUser = currentUser;
@@ -373,6 +306,10 @@
 
     function logoutAndLockSystem() {
         sessionStorage.removeItem('erp_auth_session');
+        localStorage.removeItem('erp_current_user');
+        if (typeof firebase !== 'undefined' && firebase.apps.length) {
+            firebase.auth(firebase.app('SidiYaqoutApp')).signOut().catch(error => console.error('Firebase sign-out failed:', error));
+        }
         isUserAuthenticated = false;
         window.isUserAuthenticated = false;
         currentUser = null;
@@ -382,7 +319,7 @@
     }
 
     // ── تسجيل الدخول بواسطة اسم المستخدم وكلمة المرور ─────────────────────
-    function handleUnlockSystem(e) {
+    async function handleUnlockSystem(e) {
         if (e && e.preventDefault) e.preventDefault();
 
         const uInput = document.getElementById('lock-username-input');
@@ -400,11 +337,13 @@
             return;
         }
 
-        const user = usersDb.find(u => u.username.toLowerCase() === uName);
-
-        if (!user || String(user.pin).trim() !== pwd) {
+        let user;
+        try {
+            user = await window.signInToFirebase(uName, pwd);
+        } catch (error) {
+            console.error('Login failed:', error);
             if (errMsg) {
-                errMsg.textContent = '❌ اسم المستخدم أو كلمة المرور غير صحيحة! يرجى التأكد والمحاولة مرة أخرى.';
+                errMsg.textContent = error.message || 'اسم المستخدم أو كلمة المرور غير صحيحة.';
                 errMsg.style.display = 'block';
             }
             if (pInput) {
@@ -413,11 +352,31 @@
             }
             return;
         }
+        if (!user || !user.username) {
+            if (errMsg) {
+                errMsg.textContent = 'تعذر استعادة ملف المستخدم من الخادم.';
+                errMsg.style.display = 'block';
+            }
+            return;
+        }
+        if (user.role !== 'admin') {
+            usersDb = migrateUsersDb([user]);
+            localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+        } else if (!usersDb.some(entry => entry.username === user.username)) {
+            usersDb = migrateUsersDb([user]);
+            localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+        }
 
         currentUser = user;
         isUserAuthenticated = true;
         window.currentUser = currentUser;
         window.isUserAuthenticated = isUserAuthenticated;
+        try {
+            await window.activateAuthenticatedFirebaseSession();
+            if (typeof window.loadGeofenceConfig === 'function') await window.loadGeofenceConfig();
+        } catch (error) {
+            console.error('Post-login data synchronization failed:', error);
+        }
 
         sessionStorage.setItem('erp_auth_session', JSON.stringify({
             username: user.username,
@@ -441,7 +400,7 @@
         }
 
         // توجيه الموظف لتغيير كلمة المرور الافتراضية عند أول تسجيل دخول لحماية حسابه
-        if (currentUser.role !== 'admin' && (!currentUser.hasChangedPassword || currentUser.pin === '1234')) {
+        if (!currentUser.hasChangedPassword) {
             setTimeout(() => {
                 if (typeof openChangePasswordModal === 'function') {
                     openChangePasswordModal(true);
@@ -755,12 +714,7 @@
                 <td>${u.fullName}</td>
                 <td><span class="role-badge ${roleBadgeClass}">${roleName}</span></td>
                 <td>${permsBadge}</td>
-                <td style="font-family:Consolas, monospace; font-size:13px; text-align:center;">
-                    <div style="display:inline-flex; align-items:center; gap:6px; background:#f0fdf4; border:1px solid #86efac; border-radius:6px; padding:3px 8px;">
-                        <span style="font-weight:800; color:#15803d; letter-spacing:1px;" id="pin-val-${u.username}">${u.pin || '-'}</span>
-                        <button type="button" style="background:none; border:none; cursor:pointer; font-size:11px; padding:0; color:#059669;" onclick="copyUserPin('${u.pin}')" title="نسخ كلمة المرور">📋</button>
-                    </div>
-                </td>
+                <td style="text-align:center;">محفوظة بشكل آمن</td>
                 <td>${u.createdAt || '-'}</td>
                 <td>
                     <span class="badge ${isCurrent ? 'badge-status-active' : 'badge-dept'}">
@@ -870,7 +824,7 @@
     }
 
     // ── حفظ مستخدم جديد أو تعديل مستخدم قائم ────────────────────────────
-    function handleCreateUser(e) {
+    async function handleCreateUser(e) {
         e.preventDefault();
         if (currentUser && currentUser.role !== 'admin') {
             alert('⚠️ عذراً! إضافة وتعديل المستخدمين مقتصرة على مدير النظام (Admin) فقط.');
@@ -914,15 +868,29 @@
                 return;
             }
 
-            targetUser.fullName = fullName;
-            targetUser.role = role;
-            targetUser.empId = empId;
-            targetUser.screenAccess = selectedAccess;
-            targetUser.permissions = allowedScreens;
-            if (pin) targetUser.pin = pin;
-
+            const updatedUser = {
+                ...targetUser,
+                fullName,
+                role,
+                empId,
+                screenAccess: selectedAccess,
+                permissions: allowedScreens
+            };
+            try {
+                const response = await window.authenticatedFetch(`/api/auth/users/${encodeURIComponent(editingUsername)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user: updatedUser, password: pin })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'تعذر تحديث المستخدم.');
+            } catch (error) {
+                alert(error.message);
+                return;
+            }
+            Object.assign(targetUser, updatedUser);
+            delete targetUser.pin;
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-            if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
 
             if (currentUser && currentUser.username === editingUsername) {
                 currentUser = targetUser;
@@ -946,21 +914,35 @@
                 alert('⚠️ يرجى كتابة كلمة المرور للمستخدم الجديد!');
                 return;
             }
+            if (pin.length < 8) {
+                alert('⚠️ كلمة المرور يجب أن تتكون من 8 أحرف على الأقل.');
+                return;
+            }
 
             const newUser = {
                 username: username,
                 fullName: fullName,
                 role: role,
                 empId: empId,
-                pin: pin,
                 permissions: allowedScreens,
                 screenAccess: selectedAccess,
                 createdAt: new Date().toISOString().split('T')[0]
             };
 
-            usersDb.push(newUser);
+            try {
+                const response = await window.authenticatedFetch('/api/auth/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user: newUser, password: pin })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'تعذر إنشاء المستخدم.');
+                usersDb.push(result.user);
+            } catch (error) {
+                alert(error.message);
+                return;
+            }
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-            if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
 
             cancelEditUser();
             populateUserSelectDropdowns();
@@ -983,12 +965,17 @@
             return;
         }
         if (confirm(`هل أنت متأكد من حذف المستخدم (${uName})؟`)) {
-            usersDb = usersDb.filter(u => u.username !== uName);
-            localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-            if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
-            populateUserSelectDropdowns();
-            renderUsersTable();
-            showToast('تم حذف المستخدم بنجاح.');
+            window.authenticatedFetch(`/api/auth/users/${encodeURIComponent(uName)}`, { method: 'DELETE' })
+                .then(async response => {
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message || 'تعذر حذف المستخدم.');
+                    usersDb = usersDb.filter(u => u.username !== uName);
+                    localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+                    populateUserSelectDropdowns();
+                    renderUsersTable();
+                    showToast('تم حذف المستخدم بنجاح.');
+                })
+                .catch(error => alert(error.message));
         }
     }
 
@@ -1022,25 +1009,37 @@
         if (modal) modal.style.display = 'none';
     }
 
-    function handleSwitchUserSubmit(e) {
+    async function handleSwitchUserSubmit(e) {
         e.preventDefault();
         const uName = document.getElementById('switch-user-select').value;
         const pwd = document.getElementById('switch-user-password').value.trim();
         const user = usersDb.find(u => u.username === uName);
 
-        if (!user || user.pin !== pwd) {
+        if (!user) {
             const err = document.getElementById('switch-user-error');
             if (err) {
-                err.textContent = '❌ رمز المرور غير صحيح لهذا المستخدم!';
+                err.textContent = '❌ تعذر العثور على المستخدم المحدد.';
+                err.style.display = 'block';
+            }
+            return;
+        }
+        let authenticatedUser;
+        try {
+            authenticatedUser = await window.signInToFirebase(uName, pwd);
+        } catch (error) {
+            const err = document.getElementById('switch-user-error');
+            if (err) {
+                err.textContent = error.message;
                 err.style.display = 'block';
             }
             return;
         }
 
-        currentUser = user;
+        currentUser = authenticatedUser;
         isUserAuthenticated = true;
         window.currentUser = currentUser;
         window.isUserAuthenticated = isUserAuthenticated;
+        await window.activateAuthenticatedFirebaseSession();
 
         sessionStorage.setItem('erp_auth_session', JSON.stringify({
             username: user.username,
@@ -1101,75 +1100,11 @@
 
     function handleEmployeeSelfRegister(e) {
         e.preventDefault();
-        const sel = document.getElementById('self-reg-emp-select');
-        const uInp = document.getElementById('self-reg-username');
-        const pInp = document.getElementById('self-reg-password');
         const err = document.getElementById('self-reg-error');
-
-        const empId = sel ? parseInt(sel.value) : null;
-        const username = uInp ? uInp.value.trim().toLowerCase() : '';
-        const pin = pInp ? pInp.value.trim() : '';
-
-        if (!empId) {
-            if (err) { err.textContent = '❌ يرجى اختيار اسمك من قائمة الموظفين!'; err.style.display = 'block'; }
-            return;
+        if (err) {
+            err.textContent = 'إنشاء الحسابات الذاتية متوقف لحماية بيانات الموظفين. يرجى التواصل مع مدير النظام لإنشاء الحساب.';
+            err.style.display = 'block';
         }
-
-        if (!username || !pin) {
-            if (err) { err.textContent = '❌ يرجى ملء اسم المستخدم وكلمة المرور!'; err.style.display = 'block'; }
-            return;
-        }
-
-        if (usersDb.some(u => u.username === username)) {
-            if (err) { err.textContent = '❌ اسم المستخدم هذا موجود بالفعل! اختر اسماً آخر.'; err.style.display = 'block'; }
-            return;
-        }
-
-        const emp = typeof employees !== 'undefined' ? employees.find(e => e.id === empId) : null;
-        const fullName = emp ? emp.name : username;
-
-        const newUser = {
-            username: username,
-            fullName: fullName,
-            role: 'employee',
-            empId: empId,
-            pin: pin,
-            permissions: ['screen-employee-sarki'],
-            screenAccess: { 'screen-employee-sarki': 'view' },
-            createdAt: new Date().toISOString().split('T')[0]
-        };
-
-        usersDb.push(newUser);
-        localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-        if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
-
-        if (emp) {
-            emp.username = username;
-            emp.hasNoUser = false;
-            localStorage.setItem('erp_employees_db', JSON.stringify(employees));
-        }
-
-        currentUser = newUser;
-        isUserAuthenticated = true;
-        window.currentUser = currentUser;
-        window.isUserAuthenticated = isUserAuthenticated;
-
-        sessionStorage.setItem('erp_auth_session', JSON.stringify({
-            username: newUser.username,
-            loginTime: new Date().toISOString()
-        }));
-        localStorage.setItem('erp_current_user', JSON.stringify(currentUser));
-
-        closeEmployeeSelfRegisterModal();
-        closeSwitchUserModal();
-        const lockModal = document.getElementById('modal-lock-screen');
-        if (lockModal) lockModal.style.display = 'none';
-        document.body.classList.remove('app-locked');
-
-        populateUserSelectDropdowns();
-        updateSidebarUserDisplay();
-        applyRolePermissions();
-        showToast(`مرحباً بك يا ${fullName}! تم تسجيل حسابك والدخول إلى سركي الراتب بنجاح. 🎉`, 'success');
     }
 
     function populateNewUserEmployeeSelect() {
@@ -1237,7 +1172,7 @@
         if (modal) modal.style.display = 'none';
     }
 
-    function handleUserSelfChangePassword(e) {
+    async function handleUserSelfChangePassword(e) {
         if (e && e.preventDefault) e.preventDefault();
         const curInput = document.getElementById('change-pwd-current');
         const newInput = document.getElementById('change-pwd-new');
@@ -1253,18 +1188,9 @@
             return;
         }
 
-        if (String(currentUser.pin).trim() !== curPwd) {
+        if (!newPwd || newPwd.length < 8) {
             if (errEl) {
-                errEl.textContent = '❌ كلمة المرور الحالية غير صحيحة! يرجى التأكد وإعادة المحاولة.';
-                errEl.style.display = 'block';
-            }
-            if (curInput) { curInput.value = ''; curInput.focus(); }
-            return;
-        }
-
-        if (!newPwd || newPwd.length < 2) {
-            if (errEl) {
-                errEl.textContent = '⚠️ يرجى إدخال كلمة مرور جديدة مكونة من حرفين أو رقمين على الأقل.';
+                errEl.textContent = '⚠️ كلمة المرور الجديدة يجب أن تتكون من 8 أحرف على الأقل.';
                 errEl.style.display = 'block';
             }
             return;
@@ -1278,14 +1204,26 @@
             return;
         }
 
-        // تحديث كلمة المرور للمستخدم النشط
-        currentUser.pin = newPwd;
+        try {
+            const response = await window.authenticatedFetch('/api/auth/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword: curPwd, newPassword: newPwd })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || 'تعذر تحديث كلمة المرور.');
+        } catch (error) {
+            if (errEl) {
+                errEl.textContent = error.message;
+                errEl.style.display = 'block';
+            }
+            return;
+        }
         currentUser.hasChangedPassword = true;
 
         // تحديث المستخدم في قاعدة بيانات المستخدمين
         const target = usersDb.find(u => u.username.toLowerCase() === currentUser.username.toLowerCase());
         if (target) {
-            target.pin = newPwd;
             target.hasChangedPassword = true;
         }
 
@@ -1296,30 +1234,12 @@
             loginTime: new Date().toISOString()
         }));
 
-        if (typeof pushSingleCollectionToFirebase === 'function') {
-            try {
-                pushSingleCollectionToFirebase('users', usersDb);
-            } catch(err) {}
-        }
-
         renderUsersTable();
         closeChangePasswordModal();
 
-        alert('✔ تم تغيير كلمة المرور بنجاح! تم حفظ التحديث وستظهر كلمة المرور الجديدة في شاشة الصلاحيات.');
+        alert('✔ تم تغيير كلمة المرور بنجاح وحفظها مشفرة على الخادم.');
         showToast('تم تحديث كلمة المرور الخاصة بك بنجاح! 🔑', 'success');
-    }
-
-    function copyUserPin(pin) {
-        if (!pin || pin === '-') return;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(pin).then(() => {
-                showToast(`تم نسخ كلمة المرور: ${pin} 📋`, 'info');
-            }).catch(() => {
-                prompt('انسخ كلمة المرور من هنا:', pin);
-            });
-        } else {
-            prompt('انسخ كلمة المرور من هنا:', pin);
-        }
+        logoutAndLockSystem();
     }
 
     // تصدير الدوال للنطاق العام
@@ -1350,4 +1270,3 @@
     window.openChangePasswordModal = openChangePasswordModal;
     window.closeChangePasswordModal = closeChangePasswordModal;
     window.handleUserSelfChangePassword = handleUserSelfChangePassword;
-    window.copyUserPin = copyUserPin;

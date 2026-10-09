@@ -122,7 +122,7 @@
         // 1. جلب بصمات الـ GPS
         let punches = [];
         try {
-            const resp = await fetch('/api/attendance/punches');
+            const resp = await window.authenticatedFetch('/api/attendance/punches');
             if (resp.ok) {
                 const data = await resp.json();
                 punches = data.punches || [];

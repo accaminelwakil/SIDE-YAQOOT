@@ -1,10 +1,42 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // قواعد حماية قاعدة بيانات منظومة عيادات سيدي ياقوت التخصصية
     match /sidi_yaqout_erp/{document=**} {
-      // للسماح للمنظومة بالقراءة والكتابة
-      allow read, write: if true;
+      function canView(screen) {
+        return request.auth != null && (
+          request.auth.token.role == 'admin' ||
+          (request.auth.token.screenAccess != null &&
+           request.auth.token.screenAccess[screen] in ['view', 'edit'])
+        );
+      }
+      function canEdit(screen) {
+        return request.auth != null && (
+          request.auth.token.role == 'admin' ||
+          (request.auth.token.screenAccess != null &&
+           request.auth.token.screenAccess[screen] == 'edit')
+        );
+      }
+
+      allow read, write: if false;
+      allow read: if request.auth != null && document != 'users' && document != '_system_ping';
+      allow read: if document == 'employees' && canView('screen-employees');
+      allow write: if document == 'employees' && canEdit('screen-employees');
+      allow read: if document == 'attendance' && canView('screen-attendance');
+      allow write: if document == 'attendance' && canEdit('screen-attendance');
+      allow read: if document == 'salaryAdjustments' && canView('screen-salary-adjustments');
+      allow write: if document == 'salaryAdjustments' && canEdit('screen-salary-adjustments');
+      allow read: if document == 'payrollDelivery' && canView('screen-payroll-delivery');
+      allow write: if document == 'payrollDelivery' && canEdit('screen-payroll-delivery');
+      allow read: if document == 'payrollCycles' && canView('screen-payroll-summary');
+      allow write: if document == 'payrollCycles' && canEdit('screen-payroll-summary');
+      allow read, write: if document == 'departments' && canEdit('screen-employees');
+      allow read: if document == 'officialHolidays' && canView('screen-attendance');
+      allow write: if document == 'officialHolidays' && canEdit('screen-attendance');
+      allow read, write: if document == 'users' && request.auth != null && request.auth.token.role == 'admin';
+      allow read, write: if document == 'notifications' && request.auth != null;
+      allow read, write: if document == 'leavesPermissions' && canView('screen-leaves-permissions');
+      allow read, write: if document == 'metadata' && request.auth != null && request.auth.token.role == 'admin';
+      allow write: if document == '_system_ping' && request.auth != null && request.auth.token.role == 'admin';
     }
   }
 }

@@ -36,7 +36,7 @@
     // ── 2. جلب إعدادات النطاق الجغرافي من السيرفر أو التخزين المحلي ─────
     async function loadGeofenceConfig() {
         try {
-            const resp = await fetch('/api/geofence/config');
+            const resp = await window.authenticatedFetch('/api/geofence/config');
             if (resp.ok) {
                 const data = await resp.json();
                 activeGeofenceConfig = { ...DEFAULT_CONFIG, ...data };
@@ -58,22 +58,17 @@
 
     // ── 3. حفظ إعدادات النطاق الجغرافي ─────────────────────────────────
     async function saveGeofenceConfig(newConfig) {
-        activeGeofenceConfig = { ...activeGeofenceConfig, ...newConfig };
-        localStorage.setItem('erp_geofence_config', JSON.stringify(activeGeofenceConfig));
-
-        try {
-            const resp = await fetch('/api/geofence/config', {
+        const nextConfig = { ...activeGeofenceConfig, ...newConfig };
+        const resp = await window.authenticatedFetch('/api/geofence/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(activeGeofenceConfig)
+                body: JSON.stringify(nextConfig)
             });
-            if (resp.ok) {
-                return await resp.json();
-            }
-        } catch (e) {
-            console.warn('[Geofence] Saved locally, server update failed');
-        }
-        return { success: true, config: activeGeofenceConfig };
+        const result = await resp.json();
+        if (!resp.ok || !result.success) throw new Error(result.message || 'فشل حفظ إعدادات النطاق الجغرافي.');
+        activeGeofenceConfig = result.config;
+        localStorage.setItem('erp_geofence_config', JSON.stringify(activeGeofenceConfig));
+        return result;
     }
 
     // ── 4. التقاط إحداثيات الجهاز الحالية بدقة عالية (GPS) ─────────────
@@ -322,44 +317,14 @@
                 accuracy: pos.accuracy
             };
 
-            // إرسال الباك إند
-            let result = null;
-            let backendAvailable = false;
-            try {
-                const resp = await fetch('/api/attendance/check-in', {
+            const resp = await window.authenticatedFetch('/api/attendance/check-in', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                result = await resp.json();
-                backendAvailable = true;
-
-                if (!resp.ok || !result.success) {
-                    throw new Error(result.message || 'تم رفض تسجيل الحضور لأنك خارج مقر العمل!');
-                }
-            } catch (fetchErr) {
-                if (backendAvailable) {
-                    throw fetchErr; // السيرفر رد بالرفض الفعلي
-                }
-                // في حالة العمل بدون سيرفر (Offline / Static fallback)
-                console.warn('[Geofence] Backend unreachable, doing client-side verification fallback');
-                const dist = haversineDistance(
-                    activeGeofenceConfig.latitude,
-                    activeGeofenceConfig.longitude,
-                    pos.latitude,
-                    pos.longitude
-                );
-                const allowed = activeGeofenceConfig.radius_meters || 50;
-                if (activeGeofenceConfig.enabled && dist > allowed) {
-                    throw new Error(`عذراً! تم رفض تسجيل ${punchTitle} لأنك خارج مقر العمل. المسافة الحالية: ${Math.round(dist)} متر (الحد الأقصى: ${allowed} متر).`);
-                }
-                result = {
-                    success: true,
-                    status: 'ACCEPTED',
-                    distance_meters: Math.round(dist * 10) / 10,
-                    allowed_radius: allowed,
-                    message: `تم تسجيل ${punchTitle} بنجاح! أنت داخل مقر العمل (المسافة: ${Math.round(dist)} متر).`
-                };
+            const result = await resp.json();
+            if (!resp.ok || !result.success) {
+                throw new Error(result.message || 'تم رفض تسجيل الحضور.');
             }
 
             // تحديث اليومية المحلية وتثبيت الحركة في النظام
@@ -537,7 +502,7 @@
         }
 
         try {
-            const resp = await fetch('/api/attendance/punches');
+            const resp = await window.authenticatedFetch('/api/attendance/punches');
             const data = await resp.json();
             const punches = data.punches || [];
 

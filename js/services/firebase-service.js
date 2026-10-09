@@ -11,6 +11,39 @@
     let activeFirebaseListeners = [];
     let isPerformingRemoteSync = false;
 
+    async function signInToFirebase(username, password) {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success || !result.token) {
+            throw new Error(result.message || 'تعذر تسجيل الدخول.');
+        }
+        const auth = firebase.auth(firebaseAppInstance);
+        await auth.signInWithCustomToken(result.token);
+        return result.user;
+    }
+
+    async function authenticatedFetch(url, options = {}) {
+        const auth = firebase.auth(firebaseAppInstance);
+        const user = auth.currentUser;
+        if (!user) throw new Error('يرجى تسجيل الدخول أولاً.');
+        const token = await user.getIdToken();
+        const headers = new Headers(options.headers || {});
+        headers.set('Authorization', `Bearer ${token}`);
+        return fetch(url, { ...options, headers });
+    }
+
+    window.signInToFirebase = signInToFirebase;
+    window.authenticatedFetch = authenticatedFetch;
+    window.syncAuthenticatedCloudData = autoSyncFromCloudOnStartup;
+    window.activateAuthenticatedFirebaseSession = async () => {
+        setupFirebaseRealtimeListeners();
+        await autoSyncFromCloudOnStartup();
+    };
+
     // تحميل الإعدادات المحفوظة عند بدء التشغيل
     function loadStoredFirebaseConfig() {
         try {
@@ -228,7 +261,7 @@
             isFirebaseConnected = true;
             updateFirebaseUIStatus(true, config.projectId);
 
-            if (config.enableRealtimeSync) {
+            if (config.enableRealtimeSync && firebase.auth(app).currentUser) {
                 setupFirebaseRealtimeListeners();
             }
 
@@ -399,6 +432,10 @@
 
         try {
             isPerformingRemoteSync = true;
+            if (!currentUser || currentUser.role !== 'admin') {
+                throw new Error('رفع قاعدة البيانات بالكامل متاح لمدير النظام فقط.');
+            }
+
             const fullPayload = {
                 metadata: {
                     appName: 'منظومة عيادات سيدي ياقوت',
@@ -414,7 +451,13 @@
                 payrollDelivery: window.payrollDeliveryDb || {},
                 payrollCycles: window.savedPayrollSummaryCycles || {},
                 officialHolidays: (typeof officialHolidaysDb !== 'undefined' ? officialHolidaysDb : []),
-                users: usersDb || [],
+                users: (usersDb || []).map(user => {
+                    const safeUser = { ...user };
+                    delete safeUser.pin;
+                    delete safeUser.password;
+                    delete safeUser.passwordHash;
+                    return safeUser;
+                }),
                 notifications: (typeof notificationsDb !== 'undefined' ? notificationsDb : []),
                 leavesPermissions: (typeof leavesPermissionsDb !== 'undefined' ? leavesPermissionsDb : [])
             };
@@ -492,7 +535,9 @@
                     baseRef.doc('departments').get(),
                     baseRef.doc('shifts').get(),
                     baseRef.doc('salaryAdjustments').get(),
-                    baseRef.doc('users').get(),
+                    currentUser && currentUser.role === 'admin'
+                        ? baseRef.doc('users').get()
+                        : Promise.resolve({ exists: false }),
                     baseRef.doc('payrollDelivery').get().catch(() => ({ exists: false })),
                     baseRef.doc('payrollCycles').get().catch(() => ({ exists: false })),
                     baseRef.doc('officialHolidays').get().catch(() => ({ exists: false })),
@@ -740,6 +785,15 @@
 
         const executePush = async () => {
             try {
+                if (collectionKey === 'users') {
+                    data = (Array.isArray(data) ? data : []).map(user => {
+                        const safeUser = { ...user };
+                        delete safeUser.pin;
+                        delete safeUser.password;
+                        delete safeUser.passwordHash;
+                        return safeUser;
+                    });
+                }
                 if (firestoreDb) {
                     const baseRef = firestoreDb.collection('sidi_yaqout_erp');
                     if (['salaryAdjustments', 'payrollDelivery', 'payrollCycles'].includes(collectionKey)) {
@@ -868,18 +922,20 @@
             activeFirebaseListeners.push(unsubHol);
 
             // 8. مراقبة المستخدمين والصلاحيات
-            const unsubUsers = baseRef.doc('users').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
-                if (d && Array.isArray(d.list) && JSON.stringify(d.list) !== JSON.stringify(usersDb)) {
-                    usersDb = d.list;
-                    localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-                    if (typeof renderUsersTable === 'function' && document.getElementById('screen-users-roles')?.classList.contains('active')) {
-                        renderUsersTable();
+            if (currentUser && currentUser.role === 'admin') {
+                const unsubUsers = baseRef.doc('users').onSnapshot(doc => {
+                    if (isPerformingRemoteSync || !doc.exists) return;
+                    const d = doc.data();
+                    if (d && Array.isArray(d.list) && JSON.stringify(d.list) !== JSON.stringify(usersDb)) {
+                        usersDb = d.list;
+                        localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+                        if (typeof renderUsersTable === 'function' && document.getElementById('screen-users-roles')?.classList.contains('active')) {
+                            renderUsersTable();
+                        }
                     }
-                }
-            }, err => console.warn('Firestore Users Listener error:', err));
-            activeFirebaseListeners.push(unsubUsers);
+                }, err => console.warn('Firestore Users Listener error:', err));
+                activeFirebaseListeners.push(unsubUsers);
+            }
 
             // 9. مراقبة الإشعارات والتنبيهات المباشرة بين الديسكتوب والموبايل
             const unsubNotif = baseRef.doc('notifications').onSnapshot(doc => {
@@ -965,4 +1021,3 @@
         }
         updateFirebaseUIStatus(isFirebaseConnected, currentFirebaseConfig ? currentFirebaseConfig.projectId : '');
     }
-

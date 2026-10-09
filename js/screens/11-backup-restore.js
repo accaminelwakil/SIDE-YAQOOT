@@ -76,8 +76,12 @@
     // ── نظام النسخ الاحتياطي التلقائي والدوري كل 24 ساعة على السيرفر ──
     async function saveBackupToServer(isAuto = false) {
         try {
+            if (!window.currentUser || window.currentUser.role !== 'admin') {
+                if (!isAuto) alert('حفظ النسخ الاحتياطية على الخادم متاح لمدير النظام فقط.');
+                return;
+            }
             const fullBackup = getFullSystemBackupData();
-            const response = await fetch('/api/backup/save', {
+            const response = await window.authenticatedFetch('/api/backup/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(fullBackup)
@@ -118,7 +122,7 @@
                 btn.innerHTML = '⏳ جاري فحص السيرفر...';
             }
 
-            const res = await fetch('/api/backup/latest');
+            const res = await window.authenticatedFetch('/api/backup/latest');
             const resData = await res.json();
 
             if (btn) {
@@ -332,7 +336,6 @@
             username: 'admin',
             fullName: 'المدير العام',
             role: 'admin',
-            pin: '1234',
             permissions: (typeof ALL_SCREEN_IDS !== 'undefined' ? [...ALL_SCREEN_IDS] : []),
             screenAccess: (typeof ALL_SCREEN_IDS !== 'undefined' ? ALL_SCREEN_IDS.reduce((acc, sid) => ({ ...acc, [sid]: 'edit' }), {}) : {}),
             createdAt: new Date().toISOString().split('T')[0]
@@ -442,4 +445,3 @@
     window.restoreLatestBackupFromServer = restoreLatestBackupFromServer;
     window.clearAllSystemDataCompletelyPrompt = clearAllSystemDataCompletelyPrompt;
     window.checkAndTrigger24hAutoBackup = checkAndTrigger24hAutoBackup;
-

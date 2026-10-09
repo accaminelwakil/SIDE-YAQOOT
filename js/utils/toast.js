@@ -5,10 +5,14 @@
         if (!toast) return;
         toast.className = `toast-box toast-${type} show`;
         const icon = type === 'success' ? '✔' : (type === 'warning' ? '⚠️' : (type === 'danger' ? '✖' : 'ℹ️'));
-        toast.innerHTML = `<span style="font-size:16px;">${icon}</span><span>${msg}</span>`;
+        const iconElement = document.createElement('span');
+        iconElement.style.fontSize = '16px';
+        iconElement.textContent = icon;
+        const messageElement = document.createElement('span');
+        messageElement.textContent = String(msg);
+        toast.replaceChildren(iconElement, messageElement);
         if (toastTimeout) clearTimeout(toastTimeout);
         toastTimeout = setTimeout(() => {
             toast.classList.remove('show');
         }, 3200);
     }
-

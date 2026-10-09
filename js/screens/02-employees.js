@@ -300,12 +300,14 @@
             userFields.style.pointerEvents = 'auto';
             if (hint) hint.textContent = '✔ سيتم تفعيل حساب مستخدم للموظف لتسجيل الدخول للاطلاع على السركي';
         }
+        const passwordInput = document.getElementById(isNew ? 'new-emp-password' : 'edit-emp-password');
+        if (passwordInput && isNew) passwordInput.required = !noUserChk.checked;
     }
     window.onEmpNoUserCheckboxChanged = onEmpNoUserCheckboxChanged;
 
 
 
-    document.getElementById('emp-form').addEventListener('submit', function(e) {
+    document.getElementById('emp-form').addEventListener('submit', async function(e) {
 
         e.preventDefault();
 
@@ -342,7 +344,11 @@
 
         const assignedCode = getNextCodeForDept(job);
         const username = hasNoUser ? '' : (usernameInput && usernameInput.value.trim() ? usernameInput.value.trim().toLowerCase() : `emp_${assignedCode}`);
-        const pin = hasNoUser ? '' : (passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : '1234');
+        const pin = hasNoUser ? '' : (passwordInput ? passwordInput.value.trim() : '');
+        if (!hasNoUser && pin.length < 8) {
+            alert('يجب تعيين كلمة مرور لا تقل عن 8 أحرف لحساب الموظف.');
+            return;
+        }
 
         const newEmp = {
             id: assignedCode,
@@ -379,18 +385,29 @@
                 }
                 newEmp.username = finalUsername;
 
-                usersDb.push({
+                const newUser = {
                     username: finalUsername,
                     fullName: name,
                     role: 'employee',
                     empId: assignedCode,
-                    pin: pin,
                     permissions: ['screen-employee-sarki'],
                     screenAccess: { 'screen-employee-sarki': 'view' },
                     createdAt: new Date().toISOString().split('T')[0]
-                });
+                };
+                try {
+                    const response = await window.authenticatedFetch('/api/auth/users', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user: newUser, password: pin })
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message || 'تعذر إنشاء حساب الموظف.');
+                    usersDb.push(result.user);
+                } catch (error) {
+                    alert(error.message);
+                    return;
+                }
                 localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-                if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('users', usersDb);
                 if (typeof renderUsersTable === 'function') renderUsersTable();
                 if (typeof populateUserSelectDropdowns === 'function') populateUserSelectDropdowns();
             }
@@ -650,7 +667,7 @@
 
 
 
-    document.getElementById('edit-emp-form').addEventListener('submit', function(e) {
+    document.getElementById('edit-emp-form').addEventListener('submit', async function(e) {
 
         e.preventDefault();
 
@@ -698,35 +715,80 @@
             // حذف أو إيقاف الحساب للمستخدم
             emp.username = '';
             if (typeof usersDb !== 'undefined' && Array.isArray(usersDb)) {
-                usersDb = usersDb.filter(u => u.empId !== emp.id);
+                const linkedUser = usersDb.find(u => String(u.empId) === String(emp.id));
+                if (linkedUser) {
+                    try {
+                        const response = await window.authenticatedFetch(`/api/auth/users/${encodeURIComponent(linkedUser.username)}`, { method: 'DELETE' });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(result.message || 'تعذر إيقاف حساب الموظف.');
+                    } catch (error) {
+                        alert(error.message);
+                        return;
+                    }
+                }
+                usersDb = usersDb.filter(u => String(u.empId) !== String(emp.id));
                 localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
                 if (typeof renderUsersTable === 'function') renderUsersTable();
                 if (typeof populateUserSelectDropdowns === 'function') populateUserSelectDropdowns();
             }
         } else {
             const enteredUsername = usernameInput && usernameInput.value.trim() ? usernameInput.value.trim().toLowerCase() : (emp.username || `emp_${emp.id}`);
-            const enteredPin = passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : null;
+            const enteredPin = passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : '';
 
             emp.username = enteredUsername;
 
             if (typeof usersDb !== 'undefined' && Array.isArray(usersDb)) {
-                let user = usersDb.find(u => u.empId === emp.id || u.username.toLowerCase() === enteredUsername.toLowerCase());
+                let user = usersDb.find(u => String(u.empId) === String(emp.id));
                 if (user) {
-                    user.username = enteredUsername;
-                    user.fullName = emp.name;
-                    user.empId = emp.id;
-                    if (enteredPin) user.pin = enteredPin;
+                    if (user.username.toLowerCase() !== enteredUsername.toLowerCase()) {
+                        alert('لا يمكن تغيير اسم المستخدم المرتبط بحساب قائم من شاشة الموظف.');
+                        return;
+                    }
+                    if (enteredPin && enteredPin.length < 8) {
+                        alert('كلمة المرور الجديدة يجب أن تتكون من 8 أحرف على الأقل.');
+                        return;
+                    }
+                    const updatedUser = { ...user, fullName: emp.name, empId: emp.id };
+                    try {
+                        const response = await window.authenticatedFetch(`/api/auth/users/${encodeURIComponent(user.username)}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user: updatedUser, password: enteredPin })
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(result.message || 'تعذر تحديث حساب الموظف.');
+                    } catch (error) {
+                        alert(error.message);
+                        return;
+                    }
+                    Object.assign(user, updatedUser);
                 } else {
-                    usersDb.push({
+                    if (enteredUsername === '' || enteredPin.length < 8) {
+                        alert('أدخل اسم مستخدم وكلمة مرور من 8 أحرف على الأقل لإنشاء حساب الموظف.');
+                        return;
+                    }
+                    const newUser = {
                         username: enteredUsername,
                         fullName: emp.name,
                         role: 'employee',
                         empId: emp.id,
-                        pin: enteredPin || '1234',
                         permissions: ['screen-employee-sarki'],
                         screenAccess: { 'screen-employee-sarki': 'view' },
                         createdAt: new Date().toISOString().split('T')[0]
-                    });
+                    };
+                    try {
+                        const response = await window.authenticatedFetch('/api/auth/users', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user: newUser, password: enteredPin })
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(result.message || 'تعذر إنشاء حساب الموظف.');
+                        usersDb.push(result.user);
+                    } catch (error) {
+                        alert(error.message);
+                        return;
+                    }
                 }
                 localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
                 if (typeof renderUsersTable === 'function') renderUsersTable();
@@ -1189,20 +1251,7 @@
                 }
 
                 let user = usersDb.find(u => u.empId === emp.id || (u.username && u.username.toLowerCase() === emp.username.toLowerCase()));
-                if (!user) {
-                    user = {
-                        username: emp.username,
-                        fullName: emp.name,
-                        role: 'employee',
-                        empId: emp.id,
-                        pin: '1234',
-                        permissions: ['screen-employee-sarki'],
-                        screenAccess: { 'screen-employee-sarki': 'view' },
-                        createdAt: new Date().toISOString().split('T')[0]
-                    };
-                    usersDb.push(user);
-                    usersChanged = true;
-                } else {
+                if (user) {
                     if (!user.empId) { user.empId = emp.id; usersChanged = true; }
                     if (!user.screenAccess) { user.screenAccess = { 'screen-employee-sarki': 'view' }; usersChanged = true; }
                 }
@@ -1222,6 +1271,3 @@
     // تشغيل المزامنة فوراً عند تحميل ملف الموظفين
     syncEmployeesWithUsersDb();
     window.syncEmployeesWithUsersDb = syncEmployeesWithUsersDb;
-
-
-

@@ -150,7 +150,7 @@
     async function loadSmartPunchesFromServer(onComplete) {
         let punches = [];
         try {
-            const resp = await fetch('/api/attendance/punches');
+            const resp = await window.authenticatedFetch('/api/attendance/punches');
             if (resp.ok) {
                 const data = await resp.json();
                 if (data && Array.isArray(data.punches)) {
@@ -482,5 +482,4 @@
     window.checkCycleBiometricMissingPunches = checkCycleBiometricMissingPunches;
     window.recordPayrollCalculationAudit = recordPayrollCalculationAudit;
     window.getPayrollCalculationAuditLog = getPayrollCalculationAuditLog;
-
 
