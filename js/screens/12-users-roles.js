@@ -371,11 +371,13 @@
         isUserAuthenticated = true;
         window.currentUser = currentUser;
         window.isUserAuthenticated = isUserAuthenticated;
-        try {
-            await window.activateAuthenticatedFirebaseSession();
-            if (typeof window.loadGeofenceConfig === 'function') await window.loadGeofenceConfig();
-        } catch (error) {
-            console.error('Post-login data synchronization failed:', error);
+        if (currentUser.hasChangedPassword) {
+            try {
+                await window.activateAuthenticatedFirebaseSession();
+                if (typeof window.loadGeofenceConfig === 'function') await window.loadGeofenceConfig();
+            } catch (error) {
+                console.error('Post-login data synchronization failed:', error);
+            }
         }
 
         sessionStorage.setItem('erp_auth_session', JSON.stringify({
@@ -395,7 +397,7 @@
         applyRolePermissions();
         renderUsersTable();
         showToast(`مرحباً بك يا ${currentUser.fullName}! تم فتح المنظومة بنجاح. 🎉`, 'success');
-        if (typeof checkUserNotificationsOnLogin === 'function') {
+        if (currentUser.hasChangedPassword && typeof checkUserNotificationsOnLogin === 'function') {
             checkUserNotificationsOnLogin(currentUser);
         }
 
@@ -630,6 +632,10 @@
         if (!currentUser) return;
 
         const isAdmin = currentUser.role === 'admin';
+        const resetPasswordsButton = document.getElementById('btn-reset-temp-passwords');
+        if (resetPasswordsButton) {
+            resetPasswordsButton.style.display = isAdmin ? 'inline-flex' : 'none';
+        }
 
         // إظهار/إخفاء أزرار الشاشات في القائمة الجانبية بحسب إمكانية الاطلاع
         ALL_SYSTEM_SCREENS.forEach(screen => {
@@ -876,6 +882,7 @@
                 screenAccess: selectedAccess,
                 permissions: allowedScreens
             };
+            let savedUser;
             try {
                 const response = await window.authenticatedFetch(`/api/auth/users/${encodeURIComponent(editingUsername)}`, {
                     method: 'PUT',
@@ -884,11 +891,12 @@
                 });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.message || 'تعذر تحديث المستخدم.');
+                savedUser = result.user;
             } catch (error) {
                 alert(error.message);
                 return;
             }
-            Object.assign(targetUser, updatedUser);
+            Object.assign(targetUser, savedUser || updatedUser);
             delete targetUser.pin;
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
 
@@ -924,6 +932,7 @@
                 fullName: fullName,
                 role: role,
                 empId: empId,
+                hasChangedPassword: false,
                 permissions: allowedScreens,
                 screenAccess: selectedAccess,
                 createdAt: new Date().toISOString().split('T')[0]
@@ -1039,7 +1048,9 @@
         isUserAuthenticated = true;
         window.currentUser = currentUser;
         window.isUserAuthenticated = isUserAuthenticated;
-        await window.activateAuthenticatedFirebaseSession();
+        if (currentUser.hasChangedPassword) {
+            await window.activateAuthenticatedFirebaseSession();
+        }
 
         sessionStorage.setItem('erp_auth_session', JSON.stringify({
             username: user.username,
@@ -1052,6 +1063,9 @@
         applyRolePermissions();
         renderUsersTable();
         showToast(`تم التبديل بنجاح إلى حساب [${currentUser.fullName}]`);
+        if (!currentUser.hasChangedPassword) {
+            setTimeout(() => openChangePasswordModal(true), 300);
+        }
     }
 
     // ── تسجيل حساب موظف ذاتياً ─────────────────────────────────────────
@@ -1168,8 +1182,49 @@
     }
 
     function closeChangePasswordModal() {
+        if (currentUser && !currentUser.hasChangedPassword) return;
         const modal = document.getElementById('modal-change-password');
         if (modal) modal.style.display = 'none';
+    }
+
+    async function resetEmployeeTemporaryPasswords() {
+        if (!currentUser || currentUser.role !== 'admin') {
+            alert('هذه العملية متاحة لمدير النظام فقط.');
+            return;
+        }
+        if (!confirm('سيتم تعيين كلمة المرور المؤقتة 12345678 لكل الحسابات باستثناء اسم الدخول "admin"، وإنهاء جلساتهم الحالية. عند أول دخول سيُجبر كل مستخدم على تعيين كلمة مرور جديدة. كلمة المرور المشتركة ضعيفة، لذلك اطلب منهم تغييرها فوراً. هل تريد المتابعة؟')) {
+            return;
+        }
+
+        const password = prompt('أكد كلمة المرور المؤقتة المشتركة:', '12345678');
+        if (password === null) return;
+        if (password !== '12345678') {
+            alert('اكتب 12345678 كما طلب مدير النظام.');
+            return;
+        }
+
+        try {
+            const response = await window.authenticatedFetch('/api/auth/users/reset-temporary-passwords', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'تعذر إعادة تعيين كلمات المرور.');
+            }
+            usersDb.forEach(user => {
+                if (user.username.toLowerCase() !== 'admin') {
+                    user.hasChangedPassword = false;
+                }
+            });
+            localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+            renderUsersTable();
+            alert(`تم تحديث كلمات المرور لـ ${result.resetCount} حساباً. الحساب باسم الدخول "admin" مستثنى. يجب على الجميع تغيير كلمة المرور عند أول دخول.`);
+        } catch (error) {
+            console.error('Bulk temporary password reset failed:', error);
+            alert(error.message || 'تعذر إعادة تعيين كلمات المرور.');
+        }
     }
 
     async function handleUserSelfChangePassword(e) {
@@ -1248,6 +1303,7 @@
     window.lockScreenModal = lockScreenModal;
     window.logoutAndLockSystem = logoutAndLockSystem;
     window.handleUnlockSystem = handleUnlockSystem;
+    window.resetEmployeeTemporaryPasswords = resetEmployeeTemporaryPasswords;
     window.togglePasswordVisibility = togglePasswordVisibility;
     window.renderPermissionsCheckboxes = renderPermissionsCheckboxes;
     window.onPermLevelChanged = onPermLevelChanged;

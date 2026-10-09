@@ -2130,6 +2130,7 @@
                     <p>التحكم في أدوار ومستويات الوصول (مدير النظام، الحسابات، مشرف الحضور) وتأمين الشاشات المحاسبية</p>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" id="btn-reset-temp-passwords" class="btn-danger" style="display:none; font-size:12px; padding:7px 15px;" onclick="resetEmployeeTemporaryPasswords()">🔑 إعادة تعيين كلمات مرور الموظفين</button>
                     <button type="button" class="btn-warning" style="font-size:12px; padding:7px 15px;" onclick="lockScreenModal()">🔒 قفل المنظومة الآن</button>
                 </div>
             </div>
@@ -2150,7 +2151,7 @@
             <div class="panel" style="margin-bottom:18px;">
                 <div class="panel-title">
                     <span id="user-form-panel-title">➕ إضافة مستخدم جديد للنظام</span>
-                    <span style="font-size:12px; color:var(--text-muted);">كلمات المرور والـ PIN مخزنة محلياً بأمان</span>
+                    <span style="font-size:12px; color:var(--text-muted);">كلمات المرور محفوظة بتجزئة آمنة على الخادم</span>
                 </div>
                 <form id="user-create-form" onsubmit="handleCreateUser(event)">
                     <input type="hidden" id="editing-user-id" value="">
@@ -3454,7 +3455,7 @@
                     window.location.reload();
                 });
                 window.addEventListener('load', function() {
-                    navigator.serviceWorker.register('./sw.js?v=7', {
+                    navigator.serviceWorker.register('./sw.js?v=8', {
                         scope: './',
                         updateViaCache: 'none'
                     })

@@ -113,6 +113,8 @@ def require_firebase_auth(admin_only=False):
                 return jsonify({"success": False, "message": "جلسة الدخول غير صالحة أو منتهية."}), 401
             if admin_only and g.auth_claims.get("role") != "admin":
                 return jsonify({"success": False, "message": "هذه العملية متاحة لمدير النظام فقط."}), 403
+            if g.auth_claims.get("passwordChangeRequired") and request.endpoint != "auth_change_password_api":
+                return jsonify({"success": False, "message": "يجب تغيير كلمة المرور قبل استخدام المنظومة."}), 403
             return view(*args, **kwargs)
         return wrapped
     return decorator
@@ -287,6 +289,12 @@ def auth_login_api():
             sanitized_users = [public_user_profile(entry) for entry in users if isinstance(entry, dict)]
             user_profiles_document(db).set({"list": sanitized_users}, merge=True)
 
+        credential_data = credential_snapshot.to_dict() if credential_snapshot.exists else {}
+        password_change_required = (
+            bool(credential_data.get("passwordChangeRequired"))
+            or not bool(user.get("hasChangedPassword", False))
+        )
+
         uid = auth_user_key(username)
         try:
             auth_user = firebase_admin.auth.get_user(uid, app=firebase_admin.get_app("sidi-yaqout-server"))
@@ -312,6 +320,7 @@ def auth_login_api():
             "role": role,
             "empId": str(user.get("empId", "")),
             "isManager": bool(user.get("isManager", False)),
+            "passwordChangeRequired": password_change_required,
             "screenAccess": {} if role == "admin" else screen_access
         }
         custom_token = firebase_admin.auth.create_custom_token(
@@ -322,7 +331,10 @@ def auth_login_api():
         return jsonify({
             "success": True,
             "token": custom_token.decode("utf-8"),
-            "user": public_user_profile(user)
+            "user": {
+                **public_user_profile(user),
+                "hasChangedPassword": not password_change_required
+            }
         })
     except Exception:
         app.logger.exception("Firebase-backed login failed")
@@ -349,7 +361,11 @@ def auth_change_password_api():
         credential = credential_ref.get()
         if not credential.exists or not verify_password(current_password, credential.to_dict()):
             return jsonify({"success": False, "message": "كلمة المرور الحالية غير صحيحة."}), 403
-        credential_ref.set(hash_password(new_password))
+        if g.auth_claims.get("passwordChangeRequired") and verify_password(new_password, credential.to_dict()):
+            return jsonify({"success": False, "message": "يجب اختيار كلمة مرور مختلفة عن كلمة المرور المؤقتة."}), 400
+        credential_data = hash_password(new_password)
+        credential_data["passwordChangeRequired"] = False
+        credential_ref.set(credential_data)
         firebase_admin, _ = get_firebase_admin()
         revoke_auth_sessions(firebase_admin, username)
         profiles_ref = user_profiles_document(db)
@@ -364,6 +380,69 @@ def auth_change_password_api():
     except Exception:
         app.logger.exception("Password change failed")
         return jsonify({"success": False, "message": "تعذر تحديث كلمة المرور."}), 500
+
+
+@app.route("/api/auth/users/reset-temporary-passwords", methods=["POST"])
+@require_firebase_auth(admin_only=True)
+def auth_reset_temporary_passwords_api():
+    data = request.get_json(silent=True) or {}
+    temporary_password = str(data.get("password") or "")
+    if len(temporary_password) < 8 or len(temporary_password) > 256:
+        return jsonify({"success": False, "message": "كلمة المرور المؤقتة يجب أن تكون 8 أحرف على الأقل."}), 400
+
+    try:
+        _, db = get_firebase_admin()
+        profiles_ref = user_profiles_document(db)
+        profiles = profiles_ref.get().to_dict() or {}
+        users = profiles.get("list", [])
+        if not isinstance(users, list):
+            return jsonify({"success": False, "message": "قائمة المستخدمين غير صالحة."}), 500
+
+        target_usernames = []
+        seen_usernames = set()
+        for user in users:
+            if not isinstance(user, dict):
+                continue
+            username = normalized_username(user.get("username"))
+            if not username or username == "admin" or username in seen_usernames:
+                continue
+            seen_usernames.add(username)
+            user["hasChangedPassword"] = False
+            target_usernames.append(username)
+
+        if len(target_usernames) > 499:
+            return jsonify({"success": False, "message": "عدد الحسابات يتجاوز الحد المسموح لعملية التصفير الواحدة."}), 413
+        if not target_usernames:
+            return jsonify({"success": False, "message": "لا توجد حسابات موظفين لإعادة تعيينها."}), 404
+
+        batch = db.batch()
+        for username in target_usernames:
+            credential = hash_password(temporary_password)
+            credential["passwordChangeRequired"] = True
+            batch.set(db.collection("sidi_yaqout_auth").document(auth_user_key(username)), credential)
+        batch.set(profiles_ref, {"list": users}, merge=True)
+        batch.commit()
+
+        failed_revocations = []
+        firebase_admin, _ = get_firebase_admin()
+        for username in target_usernames:
+            try:
+                revoke_auth_sessions(firebase_admin, username)
+            except Exception:
+                app.logger.exception("Could not revoke sessions after temporary password reset for %s", username)
+                failed_revocations.append(username)
+        if failed_revocations:
+            return jsonify({
+                "success": False,
+                "resetCount": len(target_usernames),
+                "failedRevocations": failed_revocations,
+                "message": "تم تغيير كلمات المرور، لكن تعذر إنهاء بعض الجلسات السابقة. راجع سجلات الخادم فوراً."
+            }), 503
+
+        return jsonify({"success": True, "resetCount": len(target_usernames), "excludedUsername": "admin"})
+    except Exception:
+        app.logger.exception("Resetting employee temporary passwords failed")
+        return jsonify({"success": False, "message": "تعذر إعادة تعيين كلمات مرور الموظفين."}), 500
 
 
 @app.route("/api/auth/users", methods=["POST"])
@@ -384,6 +463,7 @@ def auth_create_user_api():
             return jsonify({"success": False, "message": "اسم المستخدم مستخدم بالفعل."}), 409
         clean_user = public_user_profile(user)
         clean_user["username"] = username
+        clean_user["hasChangedPassword"] = False
         users.append(clean_user)
         profiles_ref.set({"list": users}, merge=True)
         db.collection("sidi_yaqout_auth").document(auth_user_key(username)).set(hash_password(password))
@@ -426,6 +506,8 @@ def auth_manage_user_api(username):
             return jsonify({"success": False, "message": "كلمة المرور يجب أن تكون 8 أحرف على الأقل."}), 400
         clean_user = public_user_profile(user)
         clean_user["username"] = username
+        if password:
+            clean_user["hasChangedPassword"] = False
         users = [clean_user if normalized_username(entry.get("username")) == username else entry for entry in users]
         profiles_ref.set({"list": users}, merge=True)
         if password:
