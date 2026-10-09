@@ -4,7 +4,7 @@
 // =========================================================================
 
 const SIDI_YAQOUT_FIREBASE_CONFIG = {
-    apiKey: "AIzaSyAiGe18RguL2MeOoR-jvha1OFYQ9f-vAhc",
+    apiKey: "",
     authDomain: "sidi-yaqout-clinics.firebaseapp.com",
     projectId: "sidi-yaqout-clinics",
     storageBucket: "sidi-yaqout-clinics.firebasestorage.app",

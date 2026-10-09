@@ -44,6 +44,44 @@
         await autoSyncFromCloudOnStartup();
     };
 
+    async function replaceFirebaseWebApiKey(apiKey) {
+        const normalizedKey = String(apiKey || '').trim();
+        if (!normalizedKey.startsWith('AIza') || normalizedKey.length < 30 || normalizedKey.length > 100) {
+            throw new Error('مفتاح Web API غير صالح. انسخه من إعدادات تطبيق الويب في Firebase.');
+        }
+        if (!currentFirebaseConfig) {
+            throw new Error('إعدادات Firebase غير جاهزة. أعد تحميل الصفحة وحاول مرة أخرى.');
+        }
+
+        const updatedConfig = { ...currentFirebaseConfig, apiKey: normalizedKey };
+        detachFirebaseListeners();
+        if (firebaseAppInstance) {
+            await firebaseAppInstance.delete();
+        }
+        firebaseAppInstance = null;
+        firestoreDb = null;
+        realtimeDb = null;
+        isFirebaseConnected = false;
+        isRealtimeSyncActive = false;
+        currentFirebaseConfig = updatedConfig;
+        localStorage.setItem('erp_firebase_config', JSON.stringify(updatedConfig));
+        initFirebaseConnection(updatedConfig, false);
+    }
+
+    window.fixFirebaseApiKey = async () => {
+        const apiKey = window.prompt(
+            'الصق Web API key من Firebase Console → Project settings → General → Your apps → SDK setup.\nلا تستخدم مفتاح Service Account هنا.'
+        );
+        if (apiKey === null) return;
+        try {
+            await replaceFirebaseWebApiKey(apiKey);
+            window.alert('تم تحديث إعداد Firebase على هذا الجهاز. جرّب تسجيل الدخول الآن.');
+        } catch (error) {
+            console.error('Failed to update Firebase Web API key:', error);
+            window.alert(error.message || 'تعذر تحديث مفتاح Firebase.');
+        }
+    };
+
     // تحميل الإعدادات المحفوظة عند بدء التشغيل
     function loadStoredFirebaseConfig() {
         try {
@@ -53,10 +91,10 @@
                 try { config = JSON.parse(raw); } catch (e) { config = null; }
             }
             
-            // إعدادات مشروع سيدي ياقوت الخاصة بك جاهزة تلقائياً
+            // Keep project identifiers, but require the current Web API key from Firebase Console.
             if (!config || !config.apiKey) {
                 config = {
-                    apiKey: "AIzaSyAiGe18RguL2MeOoR-jvha1OFYQ9f-vAhc",
+                    apiKey: "",
                     authDomain: "sidi-yaqout-clinics.firebaseapp.com",
                     projectId: "sidi-yaqout-clinics",
                     storageBucket: "sidi-yaqout-clinics.firebasestorage.app",
