@@ -3434,6 +3434,7 @@
     <script src="js/screens/17-attendance-comparison.js"></script>
 
     <!-- Firebase Cloud Sync Service -->
+    <script src="js/config/firebase-sample-config.js"></script>
     <script src="js/services/firebase-service.js"></script>
 
     <!-- Main System Initialization -->
@@ -3453,7 +3454,7 @@
                     window.location.reload();
                 });
                 window.addEventListener('load', function() {
-                    navigator.serviceWorker.register('./sw.js?v=5', {
+                    navigator.serviceWorker.register('./sw.js?v=6', {
                         scope: './',
                         updateViaCache: 'none'
                     })

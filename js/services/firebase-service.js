@@ -98,27 +98,22 @@
     // تحميل الإعدادات المحفوظة عند بدء التشغيل
     function loadStoredFirebaseConfig() {
         try {
-            let raw = localStorage.getItem('erp_firebase_config');
-            let config = null;
+            const raw = localStorage.getItem('erp_firebase_config');
+            let savedConfig = {};
             if (raw) {
-                try { config = JSON.parse(raw); } catch (e) { config = null; }
+                try {
+                    const parsedConfig = JSON.parse(raw);
+                    if (parsedConfig && typeof parsedConfig === 'object' && !Array.isArray(parsedConfig)) {
+                        savedConfig = parsedConfig;
+                    }
+                } catch (e) {
+                    console.warn('تعذر تحليل إعدادات Firebase المحفوظة، سيتم استخدام الإعدادات الافتراضية:', e);
+                }
             }
-            
-            // Keep project identifiers, but require the current Web API key from Firebase Console.
-            if (!config || !config.apiKey) {
-                config = {
-                    apiKey: "",
-                    authDomain: "sidi-yaqout-clinics.firebaseapp.com",
-                    projectId: "sidi-yaqout-clinics",
-                    storageBucket: "sidi-yaqout-clinics.firebasestorage.app",
-                    messagingSenderId: "310875681879",
-                    appId: "1:310875681879:web:22568b0d743e3fe06e5f12",
-                    dbType: "firestore",
-                    enableRealtimeSync: true,
-                    enableOfflineFallback: true
-                };
-                localStorage.setItem('erp_firebase_config', JSON.stringify(config));
-            }
+
+            const config = { ...SIDI_YAQOOT_FIREBASE_CONFIG, ...savedConfig };
+            config.apiKey = savedConfig.apiKey || SIDI_YAQOOT_FIREBASE_CONFIG.apiKey;
+            localStorage.setItem('erp_firebase_config', JSON.stringify(config));
 
             currentFirebaseConfig = config;
             
