@@ -3446,8 +3446,17 @@
     <script>
         (function() {
             if ('serviceWorker' in navigator) {
+                let refreshingForServiceWorkerUpdate = false;
+                navigator.serviceWorker.addEventListener('controllerchange', function() {
+                    if (refreshingForServiceWorkerUpdate) return;
+                    refreshingForServiceWorkerUpdate = true;
+                    window.location.reload();
+                });
                 window.addEventListener('load', function() {
-                    navigator.serviceWorker.register('./sw.js', { scope: './' })
+                    navigator.serviceWorker.register('./sw.js?v=5', {
+                        scope: './',
+                        updateViaCache: 'none'
+                    })
                         .then(function(registration) {
                             console.log('[PWA] Service Worker registered:', registration.scope);
 

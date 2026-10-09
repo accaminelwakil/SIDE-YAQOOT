@@ -21,8 +21,17 @@
         if (!response.ok || !result.success || !result.token) {
             throw new Error(result.message || 'تعذر تسجيل الدخول.');
         }
+        if (!firebaseAppInstance || !currentFirebaseConfig || !currentFirebaseConfig.apiKey) {
+            await promptForFirebaseWebApiKey();
+        }
         const auth = firebase.auth(firebaseAppInstance);
-        await auth.signInWithCustomToken(result.token);
+        try {
+            await auth.signInWithCustomToken(result.token);
+        } catch (error) {
+            if (!String(error.code || '').startsWith('auth/api-key-not-valid')) throw error;
+            await promptForFirebaseWebApiKey();
+            await firebase.auth(firebaseAppInstance).signInWithCustomToken(result.token);
+        }
         return result.user;
     }
 
@@ -68,13 +77,17 @@
         initFirebaseConnection(updatedConfig, false);
     }
 
-    window.fixFirebaseApiKey = async () => {
+    async function promptForFirebaseWebApiKey() {
         const apiKey = window.prompt(
-            'الصق Web API key من Firebase Console → Project settings → General → Your apps → SDK setup.\nلا تستخدم مفتاح Service Account هنا.'
+            'مفتاح Firebase Web API غير صالح أو غير مضبوط.\nالصق Web API key من Firebase Console → Project settings → General → Your apps → SDK setup.\nلا تستخدم مفتاح Service Account.'
         );
-        if (apiKey === null) return;
+        if (apiKey === null) throw new Error('أُلغي تحديث مفتاح Firebase. لن يكتمل تسجيل الدخول بدونه.');
+        await replaceFirebaseWebApiKey(apiKey);
+    }
+
+    window.fixFirebaseApiKey = async () => {
         try {
-            await replaceFirebaseWebApiKey(apiKey);
+            await promptForFirebaseWebApiKey();
             window.alert('تم تحديث إعداد Firebase على هذا الجهاز. جرّب تسجيل الدخول الآن.');
         } catch (error) {
             console.error('Failed to update Firebase Web API key:', error);
