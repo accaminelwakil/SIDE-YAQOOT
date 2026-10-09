@@ -78,7 +78,7 @@ def get_firebase_admin():
         if _firebase_admin is not None:
             return _firebase_admin, _firebase_db
         import firebase_admin
-        from firebase_admin import credentials, firestore
+        from firebase_admin import auth, credentials, firestore
 
         try:
             firebase_admin.get_app("sidi-yaqout-server")
