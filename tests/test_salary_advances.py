@@ -5,6 +5,212 @@ from unittest.mock import patch
 import server
 
 
+class PayrollApprovalApiTests(unittest.TestCase):
+    cycle_key = "2026-09-25_2026-10-24"
+
+    class Snapshot:
+        def __init__(self, data):
+            self.exists = data is not None
+            self.data = data
+
+        def to_dict(self):
+            return self.data
+
+    class Document:
+        def __init__(self, database, name):
+            self.database = database
+            self.name = name
+
+        def get(self, transaction=None):
+            return PayrollApprovalApiTests.Snapshot(self.database.documents.get(self.name))
+
+        def set(self, value):
+            self.database.documents[self.name] = value
+
+    class Transaction:
+        def __init__(self, database):
+            self.database = database
+
+        def set(self, document, value, merge=False):
+            if merge:
+                current = self.database.documents.get(document.name, {})
+                self.database.documents[document.name] = {**current, **value}
+            else:
+                self.database.documents[document.name] = value
+
+    class Collection:
+        def __init__(self, database):
+            self.database = database
+
+        def document(self, name):
+            return PayrollApprovalApiTests.Document(self.database, name)
+
+    class Database:
+        def __init__(self):
+            self.documents = {
+                "payrollCycles": {
+                    "data": {
+                        PayrollApprovalApiTests.cycle_key: {
+                            "savedAt": "2026-10-10T20:00:00+00:00",
+                            "calculationSource": "punch",
+                        }
+                    }
+                }
+            }
+
+        def collection(self, _name):
+            return PayrollApprovalApiTests.Collection(self)
+
+        def transaction(self):
+            return PayrollApprovalApiTests.Transaction(self)
+
+    def setUp(self):
+        self.claims = {
+            "username": "amin elwakil",
+            "fullName": "Amin Elwakil",
+            "role": "admin",
+        }
+        self.database = self.Database()
+        self.notifications = []
+
+        class FakeAuth:
+            def verify_id_token(_self, _token, app=None, check_revoked=True):
+                return self.claims
+
+        class FakeFirebase:
+            auth = FakeAuth()
+
+            @staticmethod
+            def get_app(_name):
+                return _name
+
+        def update_notifications(mutator):
+            result, self.notifications = mutator(self.notifications)
+            return result, self.notifications
+
+        self.patches = [
+            patch("server.get_firebase_admin", return_value=(FakeFirebase(), self.database)),
+            patch(
+                "server.leaves_employee_records",
+                return_value=[
+                    {"id": "emp-1", "name": "Employee One"},
+                    {"id": "emp-2", "name": "Employee Two", "status": "انتهت خدمته"},
+                ],
+            ),
+            patch("server.update_server_notifications", side_effect=update_notifications),
+        ]
+        for mocked in self.patches:
+            mocked.start()
+        self.client = server.app.test_client()
+        self.headers = {"Authorization": "Bearer valid-token"}
+
+    def tearDown(self):
+        for mocked in reversed(self.patches):
+            mocked.stop()
+
+    def test_only_named_admin_can_approve_payroll_cycle(self):
+        self.claims["username"] = "other-admin"
+        response = self.client.post(
+            "/api/payroll-approvals",
+            headers=self.headers,
+            json={"startDate": "2026-09-25", "endDate": "2026-10-24"},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("payrollApprovals", self.database.documents)
+
+    def test_approval_schedules_employee_notification_ninety_minutes_later(self):
+        response = self.client.post(
+            "/api/payroll-approvals",
+            headers=self.headers,
+            json={"startDate": "2026-09-25", "endDate": "2026-10-24"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        approval = response.get_json()["approval"]
+        self.assertEqual(approval["status"], "approved")
+        self.assertEqual(approval["approvedByUsername"], "amin elwakil")
+        self.assertEqual(len(self.notifications), 1)
+        approved_at = datetime.datetime.fromisoformat(approval["approvedAt"])
+        available_at = datetime.datetime.fromisoformat(self.notifications[0]["availableAt"])
+        self.assertEqual(available_at - approved_at, datetime.timedelta(minutes=90))
+        self.assertEqual(self.notifications[0]["targetEmpId"], "emp-1")
+
+    def test_changed_payroll_cycle_revision_is_no_longer_approved(self):
+        response = self.client.post(
+            "/api/payroll-approvals",
+            headers=self.headers,
+            json={"startDate": "2026-09-25", "endDate": "2026-10-24"},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        self.database.documents["payrollCycles"]["data"][self.cycle_key]["savedAt"] = "2026-10-10T21:00:00+00:00"
+        status = self.client.get(
+            "/api/payroll-approvals?startDate=2026-09-25&endDate=2026-10-24",
+            headers=self.headers,
+        )
+
+        self.assertEqual(status.status_code, 200)
+        self.assertIsNone(status.get_json()["approval"])
+
+    def test_future_payroll_notifications_are_not_visible_before_due_time(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        notifications = [
+            {"id": "future", "availableAt": (now + datetime.timedelta(minutes=1)).isoformat()},
+            {"id": "ready", "availableAt": (now - datetime.timedelta(minutes=1)).isoformat()},
+        ]
+        with server.app.test_request_context():
+            server.g.auth_claims = {"username": "employee-one", "role": "employee", "empId": "emp-1"}
+            visible = server.notifications_for_current_user(notifications)
+
+        self.assertEqual([item["id"] for item in visible], ["ready"])
+
+    def test_cloud_sync_rejects_direct_payroll_delivery_without_approval(self):
+        cycle_key = self.cycle_key
+        delivery_key = f"{cycle_key}_emp-1"
+        with patch("google.cloud.firestore.transactional", new=lambda function: function):
+            response = self.client.post(
+                "/api/firebase/collection/payrollDelivery",
+                headers=self.headers,
+                json={"baseData": {}, "data": {delivery_key: {"isPaid": True}}},
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("payrollDelivery", self.database.documents)
+
+        self.database.documents["payrollApprovals"] = {
+            "data": {
+                cycle_key: {
+                    "status": "approved",
+                    "cycleSavedAt": self.database.documents["payrollCycles"]["data"][cycle_key]["savedAt"],
+                }
+            }
+        }
+        with patch("google.cloud.firestore.transactional", new=lambda function: function):
+            approved_response = self.client.post(
+                "/api/firebase/collection/payrollDelivery",
+                headers=self.headers,
+                json={"baseData": {}, "data": {delivery_key: {"isPaid": True}}},
+            )
+
+        self.assertEqual(approved_response.status_code, 200)
+        self.assertTrue(self.database.documents["payrollDelivery"]["data"][delivery_key]["isPaid"])
+
+    def test_cloud_sync_rejects_attendance_paid_flag_without_approval(self):
+        with patch("google.cloud.firestore.transactional", new=lambda function: function):
+            response = self.client.post(
+                "/api/firebase/collection/attendance",
+                headers=self.headers,
+                json={
+                    "baseData": [],
+                    "data": [{"empId": "emp-1", "date": "2026-10-01", "isPaid": True}],
+                },
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("attendance", self.database.documents)
+
+
 class SalaryAdvanceApiTests(unittest.TestCase):
     def setUp(self):
         self.claims = {
@@ -243,6 +449,46 @@ class SalaryAdvanceScheduleTests(unittest.TestCase):
                 ("2026-02-25", "2026-03-24"),
             ],
         )
+
+
+class PayrollApprovalStateTests(unittest.TestCase):
+    def test_approval_is_current_only_for_the_saved_cycle_revision(self):
+        approval_data = {
+            "data": {
+                "2025-03-25_2025-04-24": {
+                    "status": "approved",
+                    "cycleSavedAt": "2025-04-25T08:00:00+00:00",
+                }
+            }
+        }
+        cycle_data = {
+            "data": {
+                "2025-03-25_2025-04-24": {
+                    "savedAt": "2025-04-25T08:00:00+00:00",
+                }
+            }
+        }
+
+        self.assertTrue(server.payroll_cycle_approval_is_current(
+            approval_data, cycle_data, "2025-03-25_2025-04-24"
+        ))
+
+        cycle_data["data"]["2025-03-25_2025-04-24"]["savedAt"] = "2025-04-25T09:00:00+00:00"
+        self.assertFalse(server.payroll_cycle_approval_is_current(
+            approval_data, cycle_data, "2025-03-25_2025-04-24"
+        ))
+
+    def test_unapproved_or_missing_cycle_cannot_be_paid(self):
+        self.assertFalse(server.payroll_cycle_approval_is_current(
+            {"data": {}},
+            {"data": {"2025-03-25_2025-04-24": {"savedAt": "saved"}}},
+            "2025-03-25_2025-04-24",
+        ))
+        self.assertFalse(server.payroll_cycle_approval_is_current(
+            {"data": {"2025-03-25_2025-04-24": {"status": "approved", "cycleSavedAt": "saved"}}},
+            {"data": {}},
+            "2025-03-25_2025-04-24",
+        ))
 
 
 if __name__ == "__main__":

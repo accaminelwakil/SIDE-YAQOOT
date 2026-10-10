@@ -1,6 +1,63 @@
     window.payrollDeliveryDb = JSON.parse(localStorage.getItem('erp_payroll_delivery_db') || '{}');
 
     window.previousScreenBeforeDelivery = window.previousScreenBeforeDelivery || 'screen-bulk-payslips';
+    const payrollDeliveryApprovalCache = new Map();
+
+    async function fetchPayrollApprovalForDelivery(fromDate, toDate) {
+        const query = new URLSearchParams({ startDate: fromDate, endDate: toDate });
+        const response = await window.authenticatedFetch(`/api/payroll-approvals?${query}`);
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || 'تعذر التحقق من اعتماد دورة الراتب.');
+        }
+        return result.approval;
+    }
+
+    async function loadDeliveryApprovalStatus(fromDate, toDate, force = false) {
+        const cycleKey = `${fromDate}_${toDate}`;
+        const notice = document.getElementById('delivery-approval-status');
+        const cached = payrollDeliveryApprovalCache.get(cycleKey);
+        if (!force && cached && Date.now() - cached.loadedAt < 15000) {
+            renderDeliveryApprovalNotice(notice, cached.approval);
+            return cached.approval;
+        }
+        if (notice) {
+            notice.textContent = 'جارٍ التحقق من اعتماد دورة الراتب...';
+            notice.style.background = '#f8fafc';
+            notice.style.borderColor = '#cbd5e1';
+            notice.style.color = '#334155';
+        }
+        try {
+            const approval = await fetchPayrollApprovalForDelivery(fromDate, toDate);
+            payrollDeliveryApprovalCache.set(cycleKey, { approval, loadedAt: Date.now() });
+            const cycleSelect = document.getElementById('delivery-cycle-select');
+            if (cycleSelect?.value === `${fromDate}|${toDate}`) renderDeliveryApprovalNotice(notice, approval);
+            return approval;
+        } catch (error) {
+            if (notice) {
+                notice.textContent = 'تعذر التحقق من اعتماد الدورة؛ لن يُسمح بتسجيل الصرف حتى نجاح التحقق.';
+                notice.style.background = '#fef2f2';
+                notice.style.borderColor = '#fecaca';
+                notice.style.color = '#991b1b';
+            }
+            throw error;
+        }
+    }
+
+    function renderDeliveryApprovalNotice(notice, approval) {
+        if (!notice) return;
+        if (approval?.status === 'approved') {
+            notice.textContent = `دورة الراتب معتمدة بواسطة ${approval.approvedBy || 'amin elwakil'} — يمكن تسجيل الصرف.`;
+            notice.style.background = '#dcfce7';
+            notice.style.borderColor = '#86efac';
+            notice.style.color = '#166534';
+        } else {
+            notice.textContent = 'دورة الراتب غير معتمدة؛ لا يمكن تسجيل الصرف قبل اعتمادها من amin elwakil.';
+            notice.style.background = '#fef2f2';
+            notice.style.borderColor = '#fecaca';
+            notice.style.color = '#991b1b';
+        }
+    }
 
 
 
@@ -191,6 +248,9 @@
         const badgeEl = document.getElementById('delivery-cycle-badge');
 
         if (badgeEl) badgeEl.textContent = selectedCycleText;
+        loadDeliveryApprovalStatus(fromDate, toDate).catch(error =>
+            console.error('Payroll delivery approval status could not be loaded:', error)
+        );
 
 
 
@@ -366,7 +426,7 @@
 
 
 
-    function toggleDeliveryPayment(fromDate, toDate, empId) {
+    async function toggleDeliveryPayment(fromDate, toDate, empId) {
 
         const cycleKey = `${fromDate}_${toDate}`;
 
@@ -403,6 +463,19 @@
             ? !!payrollDeliveryDb[deliveryRecordKey].isPaid 
 
             : hasAttendancePaid;
+
+        if (!currentStatus) {
+            try {
+                const approval = await loadDeliveryApprovalStatus(fromDate, toDate, true);
+                if (approval?.status !== 'approved') {
+                    showToast('لا يمكن تسجيل صرف الراتب قبل اعتماد دورة الراتب من amin elwakil.', 'error');
+                    return;
+                }
+            } catch (error) {
+                showToast(error.message || 'تعذر التحقق من اعتماد دورة الراتب.', 'error');
+                return;
+            }
+        }
 
         const newStatus = !currentStatus;
 
@@ -824,6 +897,5 @@
             }
         }
     };
-
 
 

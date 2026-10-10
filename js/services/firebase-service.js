@@ -1279,8 +1279,8 @@
     const firebasePushDebounceTimers = {};
 
     function pushSingleCollectionToFirebase(collectionKey, data, immediate = false) {
-        if (!isFirebaseConnected || isPerformingRemoteSync) return;
-        if (!currentFirebaseConfig || !currentFirebaseConfig.enableRealtimeSync) return;
+        if (!isFirebaseConnected || isPerformingRemoteSync) return false;
+        if (!currentFirebaseConfig || !currentFirebaseConfig.enableRealtimeSync) return false;
 
         if (firebasePushDebounceTimers[collectionKey]) {
             clearTimeout(firebasePushDebounceTimers[collectionKey]);
@@ -1298,7 +1298,7 @@
                     });
                 }
                 const syncResult = await syncFirebaseCollection(collectionKey, data);
-                if (syncResult.pending) return;
+                if (syncResult.pending) return false;
                 applySyncedCollectionData(collectionKey, syncResult.data);
                 const timeStr = new Date().toLocaleTimeString('ar-EG');
                 updateLastSyncDisplay(timeStr);
@@ -1306,16 +1306,18 @@
                 if (typeof showToast === 'function') {
                     showToast('☁️ تم الحفظ والمزامنة السحابية مع Firebase بنجاح', 'success');
                 }
+                return true;
             } catch (e) {
                 console.error(`فشل إرسال التحديث التلقائي للمجموعة (${collectionKey}) إلى Firebase:`, e);
                 if (typeof showToast === 'function') {
                     showToast(`لم يتم تأكيد مزامنة ${collectionKey}: ${e.message}`, 'error');
                 }
+                return false;
             }
         };
 
         if (immediate || collectionKey === 'employees' || collectionKey === 'attendance') {
-            executePush();
+            return executePush();
         } else {
             firebasePushDebounceTimers[collectionKey] = setTimeout(executePush, 400);
         }

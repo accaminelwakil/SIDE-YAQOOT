@@ -1445,6 +1445,56 @@ def sync_firebase_collection_api(collection_key):
             if not isinstance(latest_data, expected_type):
                 raise ValueError("Stored sync collection has an invalid format")
             merged_data = _merge_sync_values(base_data, desired_data, latest_data)
+            newly_paid_cycles = set()
+            if collection_key == "payrollDelivery":
+                for record_key, record in merged_data.items():
+                    previous_record = latest_data.get(record_key)
+                    if (
+                        isinstance(record, dict)
+                        and record.get("isPaid") is True
+                        and not (isinstance(previous_record, dict) and previous_record.get("isPaid") is True)
+                    ):
+                        match = re.match(
+                            r"^(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})_(.+)$",
+                            str(record_key),
+                        )
+                        if not match:
+                            raise PayrollApprovalRequired
+                        newly_paid_cycles.add(f"{match.group(1)}_{match.group(2)}")
+            elif collection_key == "attendance":
+                previous_by_identity = {
+                    (str(record.get("empId") or ""), str(record.get("date") or "")): record
+                    for record in latest_data
+                    if isinstance(record, dict)
+                }
+                for record in merged_data:
+                    if not isinstance(record, dict) or record.get("isPaid") is not True:
+                        continue
+                    date_value = str(record.get("date") or "")
+                    previous_record = previous_by_identity.get(
+                        (str(record.get("empId") or ""), date_value)
+                    )
+                    if isinstance(previous_record, dict) and previous_record.get("isPaid") is True:
+                        continue
+                    if not valid_iso_date(date_value):
+                        raise PayrollApprovalRequired
+                    cycle_start, cycle_end = payroll_cycle_for_date(date_value)
+                    newly_paid_cycles.add(f"{cycle_start.isoformat()}_{cycle_end.isoformat()}")
+
+            if newly_paid_cycles:
+                approval_ref = payroll_approval_document(db)
+                cycle_ref = payroll_cycle_document(db)
+                approval_snapshot = approval_ref.get(transaction=transaction)
+                cycle_snapshot = cycle_ref.get(transaction=transaction)
+                approval_document_data = approval_snapshot.to_dict() if approval_snapshot.exists else {}
+                cycle_document_data = cycle_snapshot.to_dict() if cycle_snapshot.exists else {}
+                if any(
+                    not payroll_cycle_approval_is_current(
+                        approval_document_data, cycle_document_data, cycle_key
+                    )
+                    for cycle_key in newly_paid_cycles
+                ):
+                    raise PayrollApprovalRequired
             if not _sync_value_equal(merged_data, latest_data):
                 transaction.set(document_ref, {field: merged_data}, merge=True)
             return merged_data
@@ -1457,6 +1507,11 @@ def sync_firebase_collection_api(collection_key):
             "conflict": True,
             "path": conflict.path,
             "message": "تغيّر هذا السجل على جهاز آخر؛ لم يتم الكتابة فوق أي تعديل. احتفظ بتعديلاتك وراجع النسخة السحابية."
+        }), 409
+    except PayrollApprovalRequired:
+        return jsonify({
+            "success": False,
+            "message": "لا يمكن تسجيل صرف الراتب قبل اعتماد دورة الراتب من amin elwakil."
         }), 409
     except Exception:
         app.logger.exception("Firebase collection synchronization failed")
@@ -1662,6 +1717,161 @@ def valid_iso_date(value):
         return parsed.isoformat() == value
     except (TypeError, ValueError):
         return False
+
+
+def payroll_approval_cycle(start_value, end_value):
+    if not valid_iso_date(start_value) or not valid_iso_date(end_value):
+        return None
+    start_date = datetime.date.fromisoformat(start_value)
+    end_date = datetime.date.fromisoformat(end_value)
+    if start_date.day != 25 or end_date.day != 24:
+        return None
+    expected_start, expected_end = payroll_cycle_for_date(start_date)
+    if expected_start != start_date or expected_end != end_date:
+        return None
+    return f"{start_value}_{end_value}"
+
+
+def payroll_approval_document(db):
+    return db.collection("sidi_yaqout_erp").document("payrollApprovals")
+
+
+def payroll_cycle_document(db):
+    return db.collection("sidi_yaqout_erp").document("payrollCycles")
+
+
+def payroll_cycle_approval_is_current(approval_document_data, cycle_document_data, cycle_key):
+    approvals = approval_document_data.get("data", {}) if isinstance(approval_document_data, dict) else {}
+    saved_cycles = cycle_document_data.get("data", {}) if isinstance(cycle_document_data, dict) else {}
+    if not isinstance(approvals, dict) or not isinstance(saved_cycles, dict):
+        return False
+    approval = approvals.get(cycle_key)
+    saved_cycle = saved_cycles.get(cycle_key)
+    return (
+        isinstance(approval, dict)
+        and approval.get("status") == "approved"
+        and isinstance(saved_cycle, dict)
+        and bool(saved_cycle.get("savedAt"))
+        and approval.get("cycleSavedAt") == saved_cycle.get("savedAt")
+    )
+
+
+class PayrollApprovalRequired(Exception):
+    pass
+
+
+@app.route("/api/payroll-approvals", methods=["GET", "POST"])
+@require_firebase_auth()
+def payroll_approvals_api():
+    claims = g.auth_claims
+    data = request.args if request.method == "GET" else request.get_json(silent=True)
+    if not hasattr(data, "get"):
+        return jsonify({"success": False, "message": "بيانات اعتماد دورة الراتب غير صالحة."}), 400
+    start_date = str(data.get("startDate") or "")
+    end_date = str(data.get("endDate") or "")
+    cycle_key = payroll_approval_cycle(start_date, end_date)
+    if not cycle_key:
+        return jsonify({"success": False, "message": "دورة الراتب غير صالحة؛ يجب أن تكون من يوم 25 إلى يوم 24."}), 400
+
+    username = normalized_username(claims.get("username"))
+    if request.method == "POST":
+        if claims.get("role") != "admin" or username != "amin elwakil":
+            return jsonify({"success": False, "message": "اعتماد الرواتب متاح لحساب amin elwakil فقط."}), 403
+    elif claims.get("role") != "admin" and claims.get("role") != "employee" and not any(
+        (claims.get("screenAccess") or {}).get(screen) in ("view", "edit")
+        for screen in ("screen-payroll-summary", "screen-payroll-delivery", "screen-employee-sarki")
+    ):
+        return jsonify({"success": False, "message": "ليست لديك صلاحية عرض حالة اعتماد الرواتب."}), 403
+
+    try:
+        _, db = get_firebase_admin()
+        approval_snapshot = payroll_approval_document(db).get()
+        approval_data = approval_snapshot.to_dict() if approval_snapshot.exists else {}
+        approvals = approval_data.get("data", {}) if isinstance(approval_data, dict) else {}
+        if not isinstance(approvals, dict):
+            raise ValueError("Stored payroll approvals have an invalid format")
+
+        cycle_snapshot = payroll_cycle_document(db).get()
+        cycle_document_data = cycle_snapshot.to_dict() if cycle_snapshot.exists else {}
+        saved_cycles = cycle_document_data.get("data", {}) if isinstance(cycle_document_data, dict) else {}
+        saved_cycle = saved_cycles.get(cycle_key) if isinstance(saved_cycles, dict) else None
+        if request.method == "GET":
+            approval = approvals.get(cycle_key)
+            if (
+                not payroll_cycle_approval_is_current(approval_data, cycle_document_data, cycle_key)
+            ):
+                approval = None
+            return jsonify({"success": True, "approval": approval})
+
+        if not isinstance(saved_cycle, dict) or not saved_cycle.get("savedAt"):
+            return jsonify({"success": False, "message": "احفظ مسير دورة الراتب على السحابة أولاً قبل طلب الاعتماد."}), 409
+
+        approval = approvals.get(cycle_key)
+        is_new_approval = (
+            not isinstance(approval, dict)
+            or approval.get("cycleSavedAt") != saved_cycle.get("savedAt")
+        )
+        if is_new_approval:
+            approved_at = datetime.datetime.now(datetime.timezone.utc)
+            approval = {
+                "status": "approved",
+                "startDate": start_date,
+                "endDate": end_date,
+                "approvedAt": approved_at.isoformat(),
+                "approvedBy": str(claims.get("fullName") or claims.get("username") or "")[:120],
+                "approvedByUsername": username,
+                "calculationSource": saved_cycle.get("calculationSource", ""),
+                "cycleSavedAt": saved_cycle.get("savedAt", ""),
+            }
+            approvals[cycle_key] = approval
+            payroll_approval_document(db).set({"data": approvals})
+
+        notify_at = datetime.datetime.fromisoformat(
+            approval["approvedAt"].replace("Z", "+00:00")
+        ) + datetime.timedelta(minutes=90)
+        employees = leaves_employee_records(db)
+        notification_items = []
+        for employee in employees:
+            employee_id = str(employee.get("id") or "")
+            if not employee_id or employee.get("status") == "انتهت خدمته":
+                continue
+            notification_items.append({
+                "id": f"payroll-approved:{cycle_key}:{employee_id}",
+                "type": "payroll_approved",
+                "title": "تم اعتماد سركي الراتب",
+                "message": f"تم اعتماد سركي راتب الفترة من {start_date} إلى {end_date}. يمكنك الاطلاع عليه من شاشة سركي الموظف.",
+                "targetEmpId": employee_id,
+                "targetUsername": None,
+                "targetRole": None,
+                "senderName": approval["approvedBy"],
+                "relatedId": cycle_key,
+                "actionScreen": "screen-employee-sarki",
+                "createdAt": notify_at.isoformat(),
+                "availableAt": notify_at.isoformat(),
+                "isRead": False,
+            })
+
+        if notification_items:
+            def append_payroll_notifications(current):
+                if is_new_approval:
+                    current[:] = [
+                        item for item in current
+                        if not (
+                            item.get("type") == "payroll_approved"
+                            and item.get("relatedId") == cycle_key
+                        )
+                    ]
+                existing_ids = {item.get("id") for item in current if isinstance(item, dict)}
+                new_items = [item for item in notification_items if item["id"] not in existing_ids]
+                current[0:0] = new_items
+                return None, current
+
+            update_server_notifications(append_payroll_notifications)
+
+        return jsonify({"success": True, "approval": approval})
+    except Exception:
+        app.logger.exception("Payroll approval operation failed")
+        return jsonify({"success": False, "message": "تعذر تحميل أو حفظ اعتماد دورة الراتب."}), 500
 
 
 @app.route("/api/advances", methods=["GET", "POST"])
@@ -2115,8 +2325,26 @@ def update_server_notifications(mutator):
     return apply_update(transaction)
 
 
+def notification_is_available(notification, now):
+    available_at = notification.get("availableAt")
+    if not available_at:
+        return True
+    try:
+        parsed = datetime.datetime.fromisoformat(str(available_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed <= now
+
+
 def notifications_for_current_user(notifications):
     claims = g.auth_claims
+    now = datetime.datetime.now(datetime.timezone.utc)
+    notifications = [
+        notification for notification in notifications
+        if isinstance(notification, dict) and notification_is_available(notification, now)
+    ]
     if claims.get("role") == "admin":
         return notifications
     username = normalized_username(claims.get("username"))

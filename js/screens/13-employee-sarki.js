@@ -1,6 +1,54 @@
 // ==================== 13. شاشة سركي الموظف (الاطلاع الذاتي) ====================
 // هذه الشاشة مخصصة لحسابات الموظفين؛ تعرض للموظف سركي الراتب الخاص به فقط مع تفاصيل الحضور وساعات العمل والراتب الصافي
 
+let employeePayrollApprovalSequence = 0;
+
+async function updateEmployeePayrollApprovalStatus(startDate, endDate) {
+    const statusElement = document.getElementById('emp-sarki-approval-status');
+    const cycleSelect = document.getElementById('emp-sarki-cycle-select');
+    if (!statusElement) return;
+    const sequence = ++employeePayrollApprovalSequence;
+    const cycleKey = `${startDate}|${endDate}`;
+    statusElement.textContent = 'جارٍ التحقق من اعتماد السركي...';
+    statusElement.style.background = '#f8fafc';
+    statusElement.style.borderColor = '#cbd5e1';
+    statusElement.style.color = '#334155';
+
+    if (typeof window.authenticatedFetch !== 'function') {
+        statusElement.textContent = 'السركي غير معتمد — تعذر التحقق من الاعتماد.';
+        statusElement.style.background = '#fef2f2';
+        statusElement.style.borderColor = '#fecaca';
+        statusElement.style.color = '#991b1b';
+        return;
+    }
+
+    try {
+        const query = new URLSearchParams({ startDate, endDate });
+        const response = await window.authenticatedFetch(`/api/payroll-approvals?${query}`);
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || 'تعذر التحقق من الاعتماد.');
+        if (sequence !== employeePayrollApprovalSequence || cycleSelect?.value !== cycleKey) return;
+        if (result.approval?.status === 'approved') {
+            statusElement.textContent = `معتمد بواسطة ${result.approval.approvedBy || 'amin elwakil'}`;
+            statusElement.style.background = '#dcfce7';
+            statusElement.style.borderColor = '#86efac';
+            statusElement.style.color = '#166534';
+        } else {
+            statusElement.textContent = 'السركي غير معتمد';
+            statusElement.style.background = '#fef2f2';
+            statusElement.style.borderColor = '#fecaca';
+            statusElement.style.color = '#991b1b';
+        }
+    } catch (error) {
+        if (sequence !== employeePayrollApprovalSequence || cycleSelect?.value !== cycleKey) return;
+        statusElement.textContent = 'السركي غير معتمد — تعذر التحقق من الاعتماد.';
+        statusElement.style.background = '#fef2f2';
+        statusElement.style.borderColor = '#fecaca';
+        statusElement.style.color = '#991b1b';
+        console.error('Employee payroll approval status could not be loaded:', error);
+    }
+}
+
 function populateEmployeeSelfSarkiDropdowns() {
     const cycleSelect = document.getElementById('emp-sarki-cycle-select');
     if (!cycleSelect) return;
@@ -110,6 +158,7 @@ function generateEmployeeSelfSarki() {
 
     const [fromDate, toDate] = cycleSelect.value.split('|');
     const cycleKey = `${fromDate}_${toDate}`;
+    updateEmployeePayrollApprovalStatus(fromDate, toDate);
 
     if (typeof window.ensurePayrollCycleInputs !== 'function' ||
         typeof window.payrollCycleInputsReady !== 'function') {

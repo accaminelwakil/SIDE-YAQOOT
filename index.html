@@ -950,7 +950,9 @@
                 <!-- زراير التحكم والتصدير أعلى الشاشة -->
                 <div style="display:flex; gap:8px; align-items:center;">
                     <button type="button" class="btn-header-icon btn-header-undo" onclick="undoPayrollSummaryAction()" title="تراجع عن آخر حركة">↩️</button>
-                    <button type="button" class="btn-header-icon btn-header-save" onclick="savePayrollSummaryExplicit()" title="حفظ واعتماد مسير رواتب الفترة">💾</button>
+                    <button type="button" class="btn-header-icon btn-header-save" onclick="savePayrollSummaryExplicit()" title="حفظ مسير رواتب الفترة">💾</button>
+                    <span id="payroll-approval-status" style="padding:6px 9px; border-radius:7px; background:#fef2f2; color:#991b1b; font-size:12px; font-weight:800;">غير معتمد</span>
+                    <button type="button" id="btn-approve-payroll-cycle" class="btn-success" onclick="approvePayrollCycle()" style="display:none; font-size:12px; padding:7px 10px;">✅ اعتماد فترة الراتب</button>
                     <button type="button" class="btn-header-icon btn-header-print" onclick="printPayrollSummarySheet()" title="طباعة كشف إجمالي الرواتب">🖨️</button>
                     <button type="button" class="btn-header-icon btn-header-excel" onclick="exportTableToExcel('payroll-summary-table', 'إجمالي_رواتب_الموظفين')" title="تصدير كشف إجمالي رواتب الموظفين إلى Excel">📊</button>
                     <button type="button" class="btn-header-icon btn-header-pdf" onclick="exportPayrollSummaryToPdf()" title="تصدير كشف إجمالي الرواتب كملف PDF مباشرة">📄</button>
@@ -967,11 +969,11 @@
                         </div>
                         <div class="field" style="min-width:145px;">
                             <label style="color:var(--text-muted); font-size:11.5px;">من تاريخ (25)</label>
-                            <input type="date" id="psummary-start-date" onchange="renderPayrollSummaryTable()" style="font-weight:bold; font-size:12.5px;">
+                            <input type="date" id="psummary-start-date" onchange="renderPayrollSummaryTable(); loadPayrollApprovalStatus()" style="font-weight:bold; font-size:12.5px;">
                         </div>
                         <div class="field" style="min-width:145px;">
                             <label style="color:var(--text-muted); font-size:11.5px;">إلى تاريخ (24)</label>
-                            <input type="date" id="psummary-end-date" onchange="renderPayrollSummaryTable()" style="font-weight:bold; font-size:12.5px;">
+                            <input type="date" id="psummary-end-date" onchange="renderPayrollSummaryTable(); loadPayrollApprovalStatus()" style="font-weight:bold; font-size:12.5px;">
                         </div>
                         <div class="field" style="min-width:160px;">
                             <label style="color:var(--text-muted); font-size:11.5px;">🔍 بحث بالموظف</label>
@@ -1429,6 +1431,7 @@
 
             <!-- حاوية شيت سركي وبيان الراتب المطابق لنموذج الإكسيل -->
             <div id="emp-sarki-sheet-wrapper" style="background:#ffffff; color:#000000; border:2px solid #000; border-radius:8px; padding:20px; box-shadow:0 4px 25px rgba(0,0,0,0.4); font-family:Tahoma, Arial, sans-serif;">
+                <div id="emp-sarki-approval-status" style="margin-bottom:12px; padding:10px; border:1px solid #fecaca; border-radius:8px; background:#fef2f2; color:#991b1b; text-align:center; font-weight:900;">السركي غير معتمد</div>
                 
                 <!-- عنوان الشيت في المنتصف -->
                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2.5px solid #990012; padding-bottom:10px; margin-bottom:14px;">
@@ -1756,6 +1759,9 @@
                         <input type="text" id="delivery-search" placeholder="بحث بالاسم أو الكود..." onkeyup="renderPayrollDelivery()" style="width:100%; font-size:12px; padding:8px 10px; border-radius:6px; background:var(--bg-body); color:var(--text-main); border:1px solid var(--border);">
                     </div>
                 </div>
+            </div>
+            <div id="delivery-approval-status" class="panel" style="margin-bottom:12px; padding:10px 14px; background:#fef2f2; border-color:#fecaca; color:#991b1b; font-weight:800;">
+                لا يمكن تسجيل صرف الرواتب قبل اعتماد دورة الراتب من amin elwakil.
             </div>
 
             <!-- بطاقات الإحصائيات العامة -->

@@ -3,6 +3,88 @@
     let payrollSummaryHistoryStack = [];
     let savedPayrollSummaryCycles = JSON.parse(localStorage.getItem('erp_saved_payroll_cycles_db') || '{}');
     let payrollCalculationMode = window.getPayrollCalculationModePreference();
+    let payrollApprovalRequestSequence = 0;
+
+    function setPayrollApprovalBadge(approval, errorMessage = '') {
+        const badge = document.getElementById('payroll-approval-status');
+        const button = document.getElementById('btn-approve-payroll-cycle');
+        const user = window.currentUser || {};
+        const canApprove = user.role === 'admin' && String(user.username || '').trim().toLowerCase() === 'amin elwakil';
+        if (button) button.style.display = canApprove ? 'inline-flex' : 'none';
+        if (!badge) return;
+
+        if (approval && approval.status === 'approved') {
+            const approvedBy = approval.approvedBy || 'amin elwakil';
+            const approvedAt = approval.approvedAt ? new Date(approval.approvedAt).toLocaleString('ar-EG') : '';
+            badge.textContent = `معتمد بواسطة ${approvedBy}${approvedAt ? ` — ${approvedAt}` : ''}`;
+            badge.style.background = '#dcfce7';
+            badge.style.color = '#166534';
+        } else {
+            badge.textContent = errorMessage ? `غير معتمد — ${errorMessage}` : 'غير معتمد';
+            badge.style.background = '#fef2f2';
+            badge.style.color = '#991b1b';
+        }
+    }
+
+    async function loadPayrollApprovalStatus() {
+        const sequence = ++payrollApprovalRequestSequence;
+        const startDate = document.getElementById('psummary-start-date')?.value || '';
+        const endDate = document.getElementById('psummary-end-date')?.value || '';
+        setPayrollApprovalBadge(null);
+        if (!startDate || !endDate || typeof window.authenticatedFetch !== 'function') return;
+
+        try {
+            const query = new URLSearchParams({ startDate, endDate });
+            const response = await window.authenticatedFetch(`/api/payroll-approvals?${query}`);
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || 'تعذر التحقق من اعتماد الراتب.');
+            if (sequence === payrollApprovalRequestSequence) setPayrollApprovalBadge(result.approval);
+        } catch (error) {
+            if (sequence === payrollApprovalRequestSequence) {
+                setPayrollApprovalBadge(null, 'تعذر التحقق من الحالة');
+                console.error('Payroll approval status could not be loaded:', error);
+            }
+        }
+    }
+
+    async function approvePayrollCycle() {
+        const startDate = document.getElementById('psummary-start-date')?.value || '';
+        const endDate = document.getElementById('psummary-end-date')?.value || '';
+        const cycleKey = `${startDate}_${endDate}`;
+        const user = window.currentUser || {};
+        if (
+            user.role !== 'admin' ||
+            String(user.username || '').trim().toLowerCase() !== 'amin elwakil'
+        ) {
+            showToast('اعتماد الرواتب متاح لحساب amin elwakil فقط.', 'error');
+            return;
+        }
+        if (!savedPayrollSummaryCycles[cycleKey]) {
+            showToast('احفظ مسير هذه الدورة أولاً، ثم اعتمده.', 'error');
+            return;
+        }
+        if (!confirm(`هل تؤكد اعتماد مسير الرواتب للفترة من ${startDate} إلى ${endDate}؟`)) return;
+
+        const button = document.getElementById('btn-approve-payroll-cycle');
+        if (button) button.disabled = true;
+        try {
+            const response = await window.authenticatedFetch('/api/payroll-approvals', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startDate, endDate })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success || !result.approval) {
+                throw new Error(result.message || 'تعذر اعتماد دورة الراتب.');
+            }
+            setPayrollApprovalBadge(result.approval);
+            showToast('تم اعتماد فترة الراتب. سيصل إشعار السركي للموظفين بعد ساعة ونصف.', 'success');
+        } catch (error) {
+            showToast(error.message || 'تعذر اعتماد دورة الراتب.', 'error');
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
 
     function setPayrollSummaryCalcMode(mode) {
         payrollCalculationMode = (mode === 'punch') ? 'punch' : 'manual';
@@ -282,6 +364,7 @@
         }
 
         renderPayrollSummaryTable();
+        loadPayrollApprovalStatus();
     }
 
     function undoPayrollSummaryAction() {
@@ -300,7 +383,7 @@
         }
     }
 
-    function savePayrollSummaryExplicit() {
+    async function savePayrollSummaryExplicit() {
         const startInput = document.getElementById('psummary-start-date');
         const endInput = document.getElementById('psummary-end-date');
         if (!startInput || !endInput || !startInput.value || !endInput.value) {
@@ -321,7 +404,9 @@
         };
 
         localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify(savedPayrollSummaryCycles));
-        if (typeof pushSingleCollectionToFirebase === 'function') pushSingleCollectionToFirebase('payrollCycles', savedPayrollSummaryCycles);
+        const savedToCloud = typeof pushSingleCollectionToFirebase === 'function'
+            ? await pushSingleCollectionToFirebase('payrollCycles', savedPayrollSummaryCycles, true)
+            : false;
 
         // تسجيل في سجل عمليات الاحتساب (Audit Log)
         if (typeof recordPayrollCalculationAudit === 'function' && Array.isArray(window.lastRenderedPayrollSummaryList)) {
@@ -331,7 +416,9 @@
         }
 
         const sourceArabic = (payrollCalculationMode === 'punch') ? 'التسجيل الذكي (البصمة)' : 'التسجيل اليدوي';
-        alert(`تم حفظ واعتماد مسير رواتب الفترة من [ ${startInput.value} إلى ${endInput.value} ] بنجاح في المنظومة! 💾\n(مصدر الاحتساب المعتمد: ${sourceArabic})`);
+        setPayrollApprovalBadge(null);
+        if (savedToCloud) await loadPayrollApprovalStatus();
+        alert(`تم حفظ مسير رواتب الفترة من [ ${startInput.value} إلى ${endInput.value} ]${savedToCloud ? ' ومزامنته سحابياً' : ' محلياً فقط؛ تعذر تأكيد مزامنته إلى السحابة'}.\nيتطلب الصرف اعتماد amin elwakil.\n(مصدر الاحتساب: ${sourceArabic})`);
     }
 
 
