@@ -3,7 +3,7 @@
 // PWA & TWA Full Offline Support & PWABuilder Optimized
 // ====================================================================
 
-const CACHE_NAME = 'sidi-yaqout-v8';
+const CACHE_NAME = 'sidi-yaqout-v9';
 
 const CORE_FILES = [
     '/',

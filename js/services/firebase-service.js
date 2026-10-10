@@ -11,6 +11,37 @@
     let activeFirebaseListeners = [];
     let isPerformingRemoteSync = false;
 
+    function ensureFirebaseAppReady() {
+        const defaultConfig = window.SIDI_YAQOOT_FIREBASE_CONFIG;
+        if (!defaultConfig || !defaultConfig.apiKey) {
+            throw new Error('تعذر تحميل إعداد Firebase الثابت. أعد تحميل التطبيق أو تواصل مع مدير النظام.');
+        }
+        if (!currentFirebaseConfig) {
+            currentFirebaseConfig = { ...defaultConfig };
+        }
+        if (currentFirebaseConfig.projectId === defaultConfig.projectId) {
+            currentFirebaseConfig.apiKey = defaultConfig.apiKey;
+        }
+        if (!currentFirebaseConfig.apiKey) {
+            throw new Error('مفتاح Firebase غير مضبوط. استخدم زر إصلاح مفتاح Firebase أسفل تسجيل الدخول.');
+        }
+
+        let existingApp = firebaseAppInstance;
+        if (!existingApp && typeof firebase !== 'undefined') {
+            existingApp = (firebase.apps || []).find(app => app.name === 'SidiYaqoutApp') || null;
+        }
+        if (existingApp && existingApp.options.apiKey !== currentFirebaseConfig.apiKey) {
+            throw new Error('إعداد Firebase قديم ما زال مفتوحًا. أغلق التطبيق تمامًا وافتحه مجددًا لتحديث الاتصال.');
+        }
+        if (!firebaseAppInstance) {
+            initFirebaseConnection(currentFirebaseConfig, false);
+        }
+        if (!firebaseAppInstance) {
+            throw new Error('تعذر تهيئة اتصال Firebase. تحقق من اتصال الإنترنت ثم أعد تحميل التطبيق.');
+        }
+        localStorage.setItem('erp_firebase_config', JSON.stringify(currentFirebaseConfig));
+    }
+
     async function signInToFirebase(username, password) {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
@@ -21,16 +52,15 @@
         if (!response.ok || !result.success || !result.token) {
             throw new Error(result.message || 'تعذر تسجيل الدخول.');
         }
-        if (!firebaseAppInstance || !currentFirebaseConfig || !currentFirebaseConfig.apiKey) {
-            await promptForFirebaseWebApiKey();
-        }
+        ensureFirebaseAppReady();
         const auth = firebase.auth(firebaseAppInstance);
         try {
             await auth.signInWithCustomToken(result.token);
         } catch (error) {
-            if (!String(error.code || '').startsWith('auth/api-key-not-valid')) throw error;
-            await promptForFirebaseWebApiKey();
-            await firebase.auth(firebaseAppInstance).signInWithCustomToken(result.token);
+            if (String(error.code || '') === 'auth/api-key-not-valid') {
+                throw new Error('Firebase رفض مفتاح Web API الثابت. استخدم زر «إصلاح مفتاح Firebase» أسفل تسجيل الدخول مرة واحدة.');
+            }
+            throw error;
         }
         return result.user;
     }
@@ -117,7 +147,11 @@
             }
 
             const config = { ...defaultConfig, ...savedConfig };
-            config.apiKey = savedConfig.apiKey || defaultConfig.apiKey;
+            if (config.projectId === defaultConfig.projectId) {
+                config.apiKey = defaultConfig.apiKey;
+            } else {
+                config.apiKey = savedConfig.apiKey || defaultConfig.apiKey;
+            }
             localStorage.setItem('erp_firebase_config', JSON.stringify(config));
 
             currentFirebaseConfig = config;
@@ -286,6 +320,12 @@
                     app = existingApps[i];
                     break;
                 }
+            }
+
+            if (app && app.options.apiKey !== config.apiKey) {
+                console.error('Firebase app is initialized with a stale API key; reload the application to reconnect.');
+                updateFirebaseUIStatus(false, config.projectId, 'إعداد Firebase قديم. أعد تحميل التطبيق.');
+                return;
             }
 
             if (!app) {
