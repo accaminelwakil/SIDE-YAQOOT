@@ -924,7 +924,7 @@
                             <th style="min-width:85px; color:#10b981;">مكافآت</th>
                             <th style="min-width:85px; color:#10b981;">بدل إدارة</th>
                             <th style="min-width:85px; color:#10b981;">بونص</th>
-                            <th style="min-width:85px; color:#ef4444;">سلف</th>
+                            <th style="min-width:85px; color:#ef4444;" title="سلف يدوية إضافية فقط؛ أقساط طلبات السلف المعتمدة تُضاف آلياً">سلف يدوية إضافية</th>
                             <th style="min-width:85px; color:#ef4444;">جزاءات</th>
                             <th style="min-width:85px; color:#ef4444;">تأمينات</th>
                             <th style="min-width:95px; color:#ef4444;">خصم مستلزمات</th>
@@ -990,11 +990,11 @@
                         <div>
                             <div style="font-weight:800; font-size:11.5px; color:#1e293b; margin-bottom:3px;">⚙️ مصدر ساعات الحضور:</div>
                             <div style="display:flex; gap:6px;">
-                                <button type="button" id="btn-psummary-mode-manual" class="mode-toggle-btn active" onclick="setPayrollSummaryCalcMode('manual')" style="padding:6px 12px; font-size:12px; font-weight:bold; border-radius:6px;" title="المصدر الافتراضي: شاشة الحضور والانصراف اليدوية">
-                                    📝 احتساب يدوي (الافتراضي)
+                                <button type="button" id="btn-psummary-mode-manual" class="mode-toggle-btn" onclick="setPayrollSummaryCalcMode('manual')" style="padding:6px 12px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من سجلات الحضور اليدوية القديمة">
+                                    📝 احتساب يدوي
                                 </button>
-                                <button type="button" id="btn-psummary-mode-punch" class="mode-toggle-btn" onclick="setPayrollSummaryCalcMode('punch')" style="padding:6px 12px; font-size:12px; font-weight:bold; border-radius:6px;" title="المصدر الذكي: بيانات البصمة الموجودة بالفعل">
-                                    📱 احتساب ذكي (البصمة)
+                                <button type="button" id="btn-psummary-mode-punch" class="mode-toggle-btn active" onclick="setPayrollSummaryCalcMode('punch')" style="padding:6px 12px; font-size:12px; font-weight:bold; border-radius:6px;" title="المصدر الافتراضي: بصمات الوجه والتسجيل اليدوي المعتمد">
+                                    📱 البصمات المعتمدة (الافتراضي)
                                 </button>
                             </div>
                         </div>
@@ -1053,7 +1053,7 @@
                             <th style="min-width:90px; color:#10b981; font-weight:bold;">إجمالي الإضافات</th>
 
                             <!-- بنود التسويات: الاستقطاعات -->
-                            <th style="min-width:70px; color:#ef4444;">سلف</th>
+                            <th style="min-width:70px; color:#ef4444;" title="يشمل الأقساط المعتمدة آلياً؛ لا تُكرر قسط السلفة هنا">سلف يدوية + أقساط معتمدة</th>
                             <th style="min-width:70px; color:#ef4444;">جزاءات</th>
                             <th style="min-width:70px; color:#ef4444;">تأمينات</th>
                             <th style="min-width:80px; color:#ef4444;">خصم مستلزمات</th>
@@ -1150,11 +1150,11 @@
                         ⚙️ طريقة احتساب ساعات السركي:
                     </div>
                     <div style="display:flex; gap:8px;">
-                        <button type="button" id="btn-sarki-mode-manual" class="mode-toggle-btn active" onclick="setSingleSarkiSourceMode('manual')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من شاشة الحضور اليدوية">
+                        <button type="button" id="btn-sarki-mode-manual" class="mode-toggle-btn" onclick="setSingleSarkiSourceMode('manual')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من سجلات الحضور اليدوية القديمة">
                             📝 احتساب بناءً على التسجيل اليدوي
                         </button>
-                        <button type="button" id="btn-sarki-mode-punch" class="mode-toggle-btn" onclick="setSingleSarkiSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من سجل حركات الحضور">
-                            📷 احتساب بناءً على سجل الحركات
+                        <button type="button" id="btn-sarki-mode-punch" class="mode-toggle-btn active" onclick="setSingleSarkiSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="الافتراضي: بصمات الوجه والتسجيل اليدوي المعتمد">
+                            📷 احتساب من البصمات المعتمدة
                         </button>
                     </div>
                 </div>
@@ -1875,7 +1875,7 @@
                                     <th style="min-width:80px; color:#10b981; font-weight:bold; background:rgba(16,185,129,0.1);">إجمالي الإضافات</th>
 
                                     <!-- بنود التسويات: الاستقطاعات زي ما هي -->
-                                    <th style="min-width:60px; color:#ef4444;">سلف</th>
+                                    <th style="min-width:60px; color:#ef4444;">سلف يدوية + أقساط</th>
                                     <th style="min-width:60px; color:#ef4444;">جزاءات</th>
                                     <th style="min-width:60px; color:#ef4444;">تأمينات</th>
                                     <th style="min-width:70px; color:#ef4444;">مستلزمات</th>
@@ -1961,11 +1961,11 @@
                     <div style="display:flex; align-items:center; gap:8px;">
                         <span style="font-weight:bold; font-size:12.5px; color:#102a45;">⚙️ مصدر احتساب ساعات السراكي:</span>
                         <div class="mode-toggle-group" style="display:flex; gap:6px;">
-                            <button type="button" id="btn-bulk-mode-manual" class="mode-toggle-btn active" onclick="setBulkPayslipsSourceMode('manual')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب الساعات من شاشة الحضور اليدوية">
-                                📝 احتساب يدوي (الافتراضي)
+                            <button type="button" id="btn-bulk-mode-manual" class="mode-toggle-btn" onclick="setBulkPayslipsSourceMode('manual')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من سجلات الحضور اليدوية القديمة">
+                                📝 احتساب يدوي
                             </button>
-                            <button type="button" id="btn-bulk-mode-punch" class="mode-toggle-btn" onclick="setBulkPayslipsSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب الساعات من سجل حركات الحضور">
-                                📷 احتساب من سجل الحركات
+                            <button type="button" id="btn-bulk-mode-punch" class="mode-toggle-btn active" onclick="setBulkPayslipsSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="الافتراضي: بصمات الوجه والتسجيل اليدوي المعتمد">
+                                📷 احتساب من البصمات المعتمدة
                             </button>
                         </div>
                     </div>
@@ -2419,6 +2419,10 @@
                         <span>⏱️</span>
                         <span>طلب إذن جديد</span>
                     </button>
+                    <button type="button" id="btn-request-advance" class="btn-primary" onclick="openSalaryAdvanceModal()" style="display:none; font-size:13px; padding:9px 15px;">
+                        <span>💰</span>
+                        <span>طلب سلفة</span>
+                    </button>
                     <button type="button" class="btn-secondary" onclick="exportLeavesPermissionsToExcel()" style="font-size:13px; padding:9px 13px;">
                         <span>📊</span>
                         <span>Excel</span>
@@ -2482,6 +2486,11 @@
                 </select>
 
                 <input type="month" id="leaves-filter-month" onchange="renderLeavesPermissionsScreen()" style="padding:7px 10px; border-radius:8px; border:1.5px solid #cbd5e1;">
+            </div>
+
+            <div style="margin:0 0 16px; padding:14px; background:#fff; border:1px solid #e2e8f0; border-radius:12px;">
+                <h3 style="margin:0 0 10px; font-size:15px;">💰 طلبات السلف والأقساط</h3>
+                <div id="salary-advances-list" style="display:grid; gap:8px;">سجّل الدخول لعرض طلبات السلف.</div>
             </div>
 
             <!-- جدول الطلبات والاعتمادات -->
@@ -2757,6 +2766,28 @@
 </div>
 
 <!-- ==================== نوافذ النظام المنبثقة (MODALS) ==================== -->
+
+<div id="salary-advance-modal" class="custom-modal-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:9999; align-items:center; justify-content:center;" onclick="if(event.target===this) closeSalaryAdvanceModal()">
+    <div style="background:#fff; border-radius:16px; width:92%; max-width:480px; padding:22px; direction:rtl;">
+        <h3 style="margin:0 0 16px;">💰 تقديم طلب سلفة</h3>
+        <p style="margin:-8px 0 14px; color:#475569; font-size:13px;">بعد موافقة المدير، يبدأ خصم الأقساط من دورة الراتب التالية.</p>
+        <form onsubmit="submitSalaryAdvance(event)">
+            <label style="display:block; margin-bottom:10px;">المبلغ بالجنيه
+                <input name="amount" type="number" min="1" max="1000000" step="0.01" required style="display:block; width:100%; margin-top:5px; padding:9px;">
+            </label>
+            <label style="display:block; margin-bottom:10px;">عدد الأقساط الشهرية
+                <input name="installmentCount" type="number" min="1" max="60" step="1" required style="display:block; width:100%; margin-top:5px; padding:9px;">
+            </label>
+            <label style="display:block; margin-bottom:14px;">سبب طلب السلفة
+                <textarea name="reason" minlength="3" maxlength="1000" required style="display:block; width:100%; margin-top:5px; padding:9px;"></textarea>
+            </label>
+            <div style="display:flex; gap:8px; justify-content:flex-start;">
+                <button class="btn-primary" type="submit">إرسال للمدير للموافقة</button>
+                <button class="btn-secondary" type="button" onclick="closeSalaryAdvanceModal()">إلغاء</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <!-- نافذة طلب إجازة جديدة -->
 <div id="modal-new-leave" class="custom-modal-backdrop" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.5); backdrop-filter:blur(5px); z-index:9999; align-items:center; justify-content:center;" onclick="if(event.target===this) closeNewLeaveModal()">

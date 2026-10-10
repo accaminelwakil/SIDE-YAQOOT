@@ -67,6 +67,8 @@ def index():
 import json
 import datetime
 import base64
+import math
+from zoneinfo import ZoneInfo
 import glob
 import hashlib
 import re
@@ -1582,12 +1584,287 @@ def update_leaves_permissions(mutator):
     return apply_update(transaction)
 
 
+def advances_document(db):
+    return db.collection("sidi_yaqout_erp").document("employee_advances")
+
+
+def update_employee_advances(mutator):
+    from google.cloud import firestore
+
+    _, db = get_firebase_admin()
+    document = advances_document(db)
+    transaction = db.transaction(max_attempts=5)
+
+    @firestore.transactional
+    def apply_update(txn):
+        snapshot = document.get(transaction=txn)
+        value = snapshot.to_dict() if snapshot.exists else {}
+        current = value.get("list", []) if isinstance(value, dict) else []
+        if not isinstance(current, list):
+            raise ValueError("Stored employee advances data is invalid")
+        result, updated = mutator(current)
+        txn.set(document, {"list": updated})
+        return result
+
+    return apply_update(transaction)
+
+
+def payroll_cycle_for_date(value):
+    if isinstance(value, str):
+        value = datetime.datetime.strptime(value, "%Y-%m-%d").date()
+    if value.day >= 25:
+        start = value.replace(day=25)
+    else:
+        previous_month = value.replace(day=1) - datetime.timedelta(days=1)
+        start = previous_month.replace(day=25)
+    end_month = start.replace(day=28) + datetime.timedelta(days=4)
+    end = end_month.replace(day=24)
+    return start, end
+
+
+def next_payroll_cycle(start_date):
+    next_month = start_date.replace(day=28) + datetime.timedelta(days=4)
+    start = next_month.replace(day=1).replace(day=25)
+    end_month = start.replace(day=28) + datetime.timedelta(days=4)
+    end = end_month.replace(day=24)
+    return start, end
+
+
+def payroll_approval_date(approved_at):
+    return approved_at.astimezone(ZoneInfo("Africa/Cairo")).date()
+
+
+def build_advance_installment_schedule(amount, installment_count, approval_date):
+    cycle_start, _ = payroll_cycle_for_date(approval_date)
+    cycle_start, _ = next_payroll_cycle(cycle_start)
+    remaining_cents = round(amount * 100)
+    base_cents = remaining_cents // installment_count
+    schedule = []
+    for index in range(installment_count):
+        installment_cents = (
+            remaining_cents if index == installment_count - 1 else base_cents
+        )
+        remaining_cents -= installment_cents
+        start, end = payroll_cycle_for_date(cycle_start)
+        schedule.append({
+            "cycleKey": f"{start.isoformat()}_{end.isoformat()}",
+            "startDate": start.isoformat(),
+            "endDate": end.isoformat(),
+            "amount": installment_cents / 100,
+        })
+        cycle_start, _ = next_payroll_cycle(start)
+    return schedule
+
+
 def valid_iso_date(value):
     try:
         parsed = datetime.datetime.strptime(str(value), "%Y-%m-%d").date()
         return parsed.isoformat() == value
     except (TypeError, ValueError):
         return False
+
+
+@app.route("/api/advances", methods=["GET", "POST"])
+@require_firebase_auth()
+def employee_advances_api():
+    claims = g.auth_claims
+    try:
+        _, db = get_firebase_admin()
+        employees = leaves_employee_records(db)
+
+        if request.method == "GET":
+            snapshot = advances_document(db).get()
+            value = snapshot.to_dict() if snapshot.exists else {}
+            records = value.get("list", []) if isinstance(value, dict) else []
+            if not isinstance(records, list):
+                raise ValueError("Stored employee advances data is invalid")
+            visible = []
+            for item in records:
+                if not isinstance(item, dict):
+                    continue
+                employee = next(
+                    (entry for entry in employees if str(entry.get("id") or "") == str(item.get("empId") or "")),
+                    None,
+                )
+                if leaves_is_admin(claims) or (
+                    str(item.get("empId") or "") == str(claims.get("empId") or "")
+                ) or (
+                    employee and attendance_can_manage_employee(claims, employee, employees)
+                ):
+                    visible.append(item)
+            visible.sort(key=lambda item: str(item.get("createdAt") or ""), reverse=True)
+            return jsonify({"success": True, "items": visible})
+
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "message": "صيغة طلب السلفة غير صالحة."}), 400
+        emp_id = str(claims.get("empId") or "").strip()
+        employee = next(
+            (entry for entry in employees if str(entry.get("id") or "") == emp_id),
+            None,
+        )
+        if not emp_id or not employee:
+            return jsonify({"success": False, "message": "حسابك غير مرتبط بموظف. راجع مدير النظام."}), 403
+        try:
+            if isinstance(data.get("amount"), bool) or isinstance(data.get("installmentCount"), bool):
+                raise ValueError
+            amount = round(float(data.get("amount")), 2)
+            raw_installment_count = float(data.get("installmentCount"))
+            if not math.isfinite(raw_installment_count) or not raw_installment_count.is_integer():
+                raise ValueError
+            installment_count = int(raw_installment_count)
+        except (OverflowError, TypeError, ValueError):
+            return jsonify({"success": False, "message": "أدخل مبلغاً وعدداً صحيحاً للأقساط."}), 400
+        reason = str(data.get("reason") or "").strip()[:1000]
+        if not math.isfinite(amount) or not 1 <= amount <= 1_000_000:
+            return jsonify({"success": False, "message": "مبلغ السلفة يجب أن يكون بين 1 و1,000,000 جنيه."}), 400
+        if not 1 <= installment_count <= 60:
+            return jsonify({"success": False, "message": "عدد الأقساط يجب أن يكون بين شهر و60 شهراً."}), 400
+        if len(reason) < 3:
+            return jsonify({"success": False, "message": "اكتب سبباً واضحاً لطلب السلفة."}), 400
+
+        item = {
+            "id": f"advance_{uuid.uuid4().hex}",
+            "empId": emp_id,
+            "empName": str(employee.get("name") or "")[:120],
+            "empUsername": str(employee.get("username") or "")[:120],
+            "managerId": str(employee.get("managerId") or ""),
+            "managerName": str(employee.get("managerName") or "")[:120],
+            "managerUsername": str(employee.get("managerUsername") or "")[:120],
+            "amount": amount,
+            "installmentCount": installment_count,
+            "installmentAmount": round(amount / installment_count, 2),
+            "reason": reason,
+            "status": "pending",
+            "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "submittedBy": str(claims.get("fullName") or claims.get("username") or "")[:120],
+            "submittedByUsername": normalized_username(claims.get("username")),
+            "schedule": [],
+        }
+
+        def append_item(current):
+            current.insert(0, item)
+            return item, current
+
+        saved_item = update_employee_advances(append_item)
+        return jsonify({"success": True, "item": saved_item}), 201
+    except Exception:
+        app.logger.exception("Employee advance request failed")
+        return jsonify({"success": False, "message": "تعذر حفظ طلب السلفة."}), 500
+
+
+@app.route("/api/advances/installments", methods=["GET"])
+@require_firebase_auth()
+def payroll_advance_installments_api():
+    claims = g.auth_claims
+    screen_access = claims.get("screenAccess") or {}
+    is_employee = claims.get("role") == "employee"
+    if not leaves_is_admin(claims) and not any(
+        screen_access.get(screen) in allowed
+        for screen, allowed in (
+            ("screen-payroll-summary", ("view", "edit")),
+            ("screen-punches-payroll", ("view", "edit")),
+            ("screen-single-sarki", ("view", "edit")),
+            ("screen-bulk-payslips", ("view", "edit")),
+            ("screen-employee-sarki", ("view", "edit")),
+        )
+    ) and not is_employee:
+        return jsonify({"success": False, "message": "ليست لديك صلاحية عرض خصومات أقساط السلف للرواتب."}), 403
+    start_date = request.args.get("startDate", "")
+    end_date = request.args.get("endDate", "")
+    if (
+        not valid_iso_date(start_date)
+        or not valid_iso_date(end_date)
+        or end_date < start_date
+    ):
+        return jsonify({"success": False, "message": "فترة دورة الراتب غير صالحة."}), 400
+    try:
+        _, db = get_firebase_admin()
+        value = advances_document(db).get().to_dict() or {}
+        records = value.get("list", []) if isinstance(value, dict) else []
+        if not isinstance(records, list):
+            raise ValueError("Stored employee advances data is invalid")
+        installments = []
+        for loan in records:
+            if not isinstance(loan, dict) or loan.get("status") != "approved":
+                continue
+            if is_employee and str(loan.get("empId") or "") != str(claims.get("empId") or ""):
+                continue
+            for installment in loan.get("schedule", []):
+                if (
+                    isinstance(installment, dict)
+                    and installment.get("startDate") == start_date
+                    and installment.get("endDate") == end_date
+                ):
+                    installments.append({
+                        "advanceId": loan.get("id"),
+                        "empId": loan.get("empId"),
+                        "amount": installment.get("amount", 0),
+                    })
+        return jsonify({"success": True, "installments": installments})
+    except Exception:
+        app.logger.exception("Payroll advance installments could not be loaded")
+        return jsonify({"success": False, "message": "تعذر تحميل أقساط السلف للدورة المحددة."}), 500
+
+
+@app.route("/api/advances/<advance_id>/decision", methods=["POST"])
+@require_firebase_auth()
+def employee_advance_decision_api(advance_id):
+    claims = g.auth_claims
+    screen_access = claims.get("screenAccess") or {}
+    if not leaves_is_admin(claims) and screen_access.get("screen-leaves-permissions") != "edit":
+        return jsonify({"success": False, "message": "تحتاج صلاحية تعديل شاشة الإجازات والأذونات لاعتماد السلفة."}), 403
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or data.get("decision") not in ("approve", "reject"):
+        return jsonify({"success": False, "message": "قرار السلفة غير صالح."}), 400
+    decision = data["decision"]
+    actor_name = str(claims.get("fullName") or claims.get("username") or "")[:120]
+    decision_at = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        _, db = get_firebase_admin()
+        employees = leaves_employee_records(db)
+
+        def decide(current):
+            loan = next(
+                (entry for entry in current if isinstance(entry, dict) and str(entry.get("id")) == advance_id),
+                None,
+            )
+            if not loan:
+                raise LookupError("طلب السلفة غير موجود.")
+            if loan.get("status") != "pending":
+                raise ValueError("تم اتخاذ قرار بشأن طلب السلفة بالفعل.")
+            employee = next(
+                (entry for entry in employees if str(entry.get("id") or "") == str(loan.get("empId") or "")),
+                None,
+            )
+            if not employee or not attendance_can_manage_employee(claims, employee, employees):
+                raise PermissionError("اعتماد السلفة متاح للأدمن أو المدير المباشر للموظف فقط.")
+            loan["status"] = "approved" if decision == "approve" else "rejected"
+            loan["approvedBy" if decision == "approve" else "rejectedBy"] = actor_name
+            loan["approvedAt" if decision == "approve" else "rejectedAt"] = decision_at.isoformat()
+            if decision == "approve":
+                approval_date = payroll_approval_date(decision_at)
+                loan["schedule"] = build_advance_installment_schedule(
+                    float(loan["amount"]),
+                    int(loan["installmentCount"]),
+                    approval_date,
+                )
+            else:
+                loan["rejectionReason"] = str(data.get("reason") or "").strip()[:1000]
+                loan["schedule"] = []
+            return loan, current
+
+        saved_loan = update_employee_advances(decide)
+        return jsonify({"success": True, "item": saved_loan})
+    except LookupError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 409
+    except Exception:
+        app.logger.exception("Employee advance decision failed")
+        return jsonify({"success": False, "message": "تعذر حفظ قرار السلفة."}), 500
 
 
 @app.route("/api/leaves-permissions", methods=["GET", "POST", "PUT", "DELETE"])

@@ -1,5 +1,5 @@
     window.previousScreenBeforeBulk = window.previousScreenBeforeBulk || 'screen-single-sarki';
-    let bulkPayslipsSourceMode = 'manual'; // 'manual' (الافتراضي الأساسي) or 'punch'
+    let bulkPayslipsSourceMode = window.getPayrollCalculationModePreference();
 
     function setBulkPayslipsSourceMode(mode) {
         bulkPayslipsSourceMode = (mode === 'punch') ? 'punch' : 'manual';
@@ -217,7 +217,11 @@
         const bonusVal = Number(adj.bonus) || 0;
         const totalAdditions = Math.round((visitsVal + cashbackVal + rewardsVal + adminVal + bonusVal) * 100) / 100;
 
-        const advVal = Number(adj.advances) || 0;
+        const legacyAdvance = Number(adj.advances) || 0;
+        const loanInstallment = typeof window.getPayrollLoanInstallment === 'function'
+            ? window.getPayrollLoanInstallment(emp.id, cycleKey)
+            : 0;
+        const advVal = Math.round((legacyAdvance + loanInstallment) * 100) / 100;
         const insVal = Number(adj.insurance) || 0;
         const penVal = Number(adj.penalties) || 0;
         const supVal = Number(adj.supplies) || 0;
@@ -504,6 +508,20 @@
         }
 
         const [fromDate, toDate] = cycleSelect.value.split('|');
+        if (
+            typeof window.ensurePayrollCycleInputs === 'function' &&
+            !window.payrollCycleInputsReady(fromDate, toDate)
+        ) {
+            container.innerHTML = '<div style="padding:18px;text-align:center;">جارٍ تحميل الحضور وأقساط السلف للدورة...</div>';
+            window.ensurePayrollCycleInputs(fromDate, toDate)
+                .then(() => renderBulkEmployeePayslips())
+                .catch(error => {
+                    if (typeof showToast === 'function') showToast(error.message, 'error');
+                    container.innerHTML = `<div style="padding:18px;text-align:center;color:#b91c1c;">${error.message}</div>`;
+                });
+            return;
+        }
+        window.activePayrollCycleKey = `${fromDate}_${toDate}`;
         const cycleText = cycleSelect.options[cycleSelect.selectedIndex] ? cycleSelect.options[cycleSelect.selectedIndex].text : '';
         const deptFilter = document.getElementById('bulk-payslips-dept-filter') ? document.getElementById('bulk-payslips-dept-filter').value : '';
 
@@ -769,4 +787,3 @@
     }
 
     window.calculateEmployeePayslipData = calculateEmployeePayslipData;
-

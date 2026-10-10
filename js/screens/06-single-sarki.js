@@ -1,5 +1,5 @@
 // ==================== 3. سركي موظف ====================
-    let singleSarkiCalculationMode = 'manual'; // 'manual' (الافتراضي) or 'punch'
+    let singleSarkiCalculationMode = window.getPayrollCalculationModePreference();
 
     function setSingleSarkiSourceMode(mode) {
         singleSarkiCalculationMode = (mode === 'punch') ? 'punch' : 'manual';
@@ -119,6 +119,20 @@
 
         const [fromDate, toDate] = cycleSelect.value.split('|');
         const cycleKey = `${fromDate}_${toDate}`;
+        if (
+            typeof window.ensurePayrollCycleInputs === 'function' &&
+            !window.payrollCycleInputsReady(fromDate, toDate)
+        ) {
+            if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="padding:18px;text-align:center;">جارٍ تحميل الحضور وأقساط السلف للدورة...</td></tr>';
+            window.ensurePayrollCycleInputs(fromDate, toDate)
+                .then(() => generateSingleSarki())
+                .catch(error => {
+                    if (typeof showToast === 'function') showToast(error.message, 'error');
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="padding:18px;text-align:center;color:#b91c1c;">${error.message}</td></tr>`;
+                });
+            return;
+        }
+        window.activePayrollCycleKey = cycleKey;
         const emp = employees.find(e => e.id === empId);
         if (!emp) return;
 
@@ -147,7 +161,7 @@
                 }
             }
         } else {
-            // التسجيل اليدوي الأساسي الافتراضي
+            // سجلات الحضور اليدوية القديمة
             empRecords = attendanceRecords.filter(r => {
                 if (r.empId !== empId) return false;
                 if (fromDate && r.date < fromDate) return false;
@@ -303,7 +317,11 @@
         document.getElementById('sarki-tot-additions').textContent = totalAdditions.toLocaleString('ar-EG', {minimumFractionDigits: 2}) + ' ج.م';
 
         // ==================== 3. جدول الاستقطاعات (من شاشة التسويات) ====================
-        const advVal = Number(adj.advances) || 0;
+        const legacyAdvance = Number(adj.advances) || 0;
+        const loanInstallment = typeof window.getPayrollLoanInstallment === 'function'
+            ? window.getPayrollLoanInstallment(emp.id, cycleKey)
+            : 0;
+        const advVal = Math.round((legacyAdvance + loanInstallment) * 100) / 100;
         const insVal = Number(adj.insurance) || 0;
         const penVal = Number(adj.penalties) || 0;
         const supVal = Number(adj.supplies) || 0;

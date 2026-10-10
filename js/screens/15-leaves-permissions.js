@@ -13,6 +13,9 @@ let leavesManagedEmployees = [];
     let loadedLeavesUsername = '';
     let loadingLeavesRequest = null;
     let failedLeavesUsername = '';
+    let salaryAdvances = [];
+    let loadedAdvancesUsername = '';
+    let loadingAdvancesRequest = null;
 
     async function leavesApiRequest(url, method = 'GET', body = null) {
         if (typeof window.authenticatedFetch !== 'function') {
@@ -27,6 +30,163 @@ let leavesManagedEmployees = [];
         }
         return result;
     }
+
+    function escapeAdvanceHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, character => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        })[character]);
+    }
+
+    function formatAdvanceMoney(value) {
+        return `${(Number(value) || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`;
+    }
+
+    async function loadSalaryAdvances(force = false) {
+        const user = window.currentUser || {};
+        const username = String(user.username || '');
+        const list = document.getElementById('salary-advances-list');
+        if (!list || !username) return;
+        if (!force && loadedAdvancesUsername === username) {
+            renderSalaryAdvances();
+            return;
+        }
+        if (loadingAdvancesRequest) return loadingAdvancesRequest;
+
+        list.textContent = 'جارٍ تحميل طلبات السلف...';
+        loadingAdvancesRequest = leavesApiRequest('/api/advances').then(result => {
+            if (!Array.isArray(result.items)) {
+                throw new Error('استجابة طلبات السلف من الخادم غير صالحة.');
+            }
+            salaryAdvances = result.items;
+            loadedAdvancesUsername = username;
+            renderSalaryAdvances();
+        }).catch(error => {
+            list.textContent = error.message;
+            if (typeof showToast === 'function') showToast(error.message, 'error');
+            throw error;
+        }).finally(() => {
+            loadingAdvancesRequest = null;
+        });
+        return loadingAdvancesRequest;
+    }
+
+    function renderSalaryAdvances() {
+        const list = document.getElementById('salary-advances-list');
+        if (!list) return;
+        const user = window.currentUser || {};
+        const isAdmin = user.role === 'admin' || user.username === 'admin';
+        const userEmpId = String(user.empId || '');
+        if (!salaryAdvances.length) {
+            list.textContent = 'لا توجد طلبات سلف مسجلة.';
+            return;
+        }
+        list.innerHTML = salaryAdvances.map(advance => {
+            const statusLabels = { pending: 'قيد موافقة المدير', approved: 'موافق عليها', rejected: 'مرفوضة' };
+            const status = statusLabels[advance.status] || 'حالة غير معروفة';
+            const schedule = Array.isArray(advance.schedule) ? advance.schedule : [];
+            const scheduleText = schedule.map(item =>
+                `${escapeAdvanceHtml(item.startDate)} إلى ${escapeAdvanceHtml(item.endDate)}: ${formatAdvanceMoney(item.amount)}`
+            ).join('، ');
+            const canReview = isAdmin || (isUserManager(user) && (
+                userEmpId && (
+                    String(advance.managerId || '') === userEmpId ||
+                    (advance.managerName && advance.managerName === user.fullName)
+                )
+            ));
+            const actions = advance.status === 'pending' && canReview
+                ? `<button type="button" class="btn-success" onclick="decideSalaryAdvance('${escapeAdvanceHtml(advance.id)}','approve')">موافقة</button>
+                   <button type="button" class="btn-danger" onclick="decideSalaryAdvance('${escapeAdvanceHtml(advance.id)}','reject')">رفض</button>`
+                : '';
+            const managerInfo = advance.status === 'pending'
+                ? `المدير المسؤول: ${escapeAdvanceHtml(advance.managerName || 'مدير النظام')}`
+                : `قرار بواسطة: ${escapeAdvanceHtml(advance.approvedBy || advance.rejectedBy || '—')}`;
+            return `<article style="padding:10px; border:1px solid #e2e8f0; border-radius:9px; background:#f8fafc;">
+                <div><strong>${escapeAdvanceHtml(advance.empName || 'الموظف')} — ${formatAdvanceMoney(advance.amount)}</strong> | ${status}</div>
+                <div>${escapeAdvanceHtml(advance.reason || '')}</div>
+                <div>التقسيط: ${Number(advance.installmentCount) || 0} شهر | ${managerInfo}</div>
+                ${scheduleText ? `<div>جدول الأقساط: ${scheduleText}</div>` : ''}
+                <div style="display:flex; gap:6px; margin-top:7px;">${actions}</div>
+            </article>`;
+        }).join('');
+    }
+
+    function openSalaryAdvanceModal() {
+        const modal = document.getElementById('salary-advance-modal');
+        if (modal) modal.style.display = 'flex';
+    }
+
+    function closeSalaryAdvanceModal() {
+        const modal = document.getElementById('salary-advance-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function submitSalaryAdvance(event) {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const submitButton = form.querySelector('[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+        try {
+            const result = await leavesApiRequest('/api/advances', 'POST', {
+                amount: Number(form.elements.amount.value),
+                installmentCount: Number(form.elements.installmentCount.value),
+                reason: form.elements.reason.value.trim()
+            });
+            if (typeof createNotification === 'function') {
+                createNotification({
+                    type: 'advance_request',
+                    title: 'طلب سلفة جديد 💰',
+                    message: `طلب الموظف (${result.item.empName}) سلفة بمبلغ ${formatAdvanceMoney(result.item.amount)} تتطلب موافقتك.`,
+                    targetRole: 'manager',
+                    targetUsername: result.item.managerUsername || 'admin',
+                    senderName: result.item.empName,
+                    relatedId: result.item.id,
+                    actionScreen: 'screen-leaves-permissions'
+                });
+            }
+            form.reset();
+            closeSalaryAdvanceModal();
+            await loadSalaryAdvances(true);
+            if (typeof showToast === 'function') showToast('تم إرسال طلب السلفة إلى المدير المسؤول للموافقة.', 'success');
+        } catch (error) {
+            if (typeof showToast === 'function') showToast(error.message, 'error');
+        } finally {
+            if (submitButton) submitButton.disabled = false;
+        }
+    }
+
+    async function decideSalaryAdvance(advanceId, decision) {
+        try {
+            const advance = salaryAdvances.find(item => item.id === advanceId);
+            const result = await leavesApiRequest(`/api/advances/${encodeURIComponent(advanceId)}/decision`, 'POST', { decision });
+            await loadSalaryAdvances(true);
+            if (typeof createNotification === 'function' && advance) {
+                createNotification({
+                    type: decision === 'approve' ? 'advance_approved' : 'advance_rejected',
+                    title: decision === 'approve' ? 'تمت الموافقة على السلفة ✅' : 'تم رفض طلب السلفة',
+                    message: decision === 'approve'
+                        ? `تمت الموافقة على سلفتك. جدول الأقساط يبدأ في دورة الرواتب التالية.`
+                        : `تم رفض طلب السلفة المقدم بمبلغ ${formatAdvanceMoney(advance.amount)}.`,
+                    targetEmpId: advance.empId,
+                    targetUsername: advance.empUsername,
+                    senderName: result.item.approvedBy || result.item.rejectedBy,
+                    relatedId: advance.id,
+                    actionScreen: 'screen-leaves-permissions'
+                });
+            }
+            if (typeof showToast === 'function') showToast('تم تحديث حالة طلب السلفة.', 'success');
+        } catch (error) {
+            if (typeof showToast === 'function') showToast(error.message, 'error');
+        }
+    }
+
+    window.openSalaryAdvanceModal = openSalaryAdvanceModal;
+    window.closeSalaryAdvanceModal = closeSalaryAdvanceModal;
+    window.submitSalaryAdvance = submitSalaryAdvance;
+    window.decideSalaryAdvance = decideSalaryAdvance;
 
     async function loadLeavesPermissionsFromServer(force = false) {
         const username = String((window.currentUser && window.currentUser.username) || '');
@@ -131,6 +291,13 @@ let leavesManagedEmployees = [];
         const user = window.currentUser || {};
         const isAdmin = (user.role === 'admin' || user.username === 'admin');
         const isManager = isUserManager(user);
+        const advanceButton = document.getElementById('btn-request-advance');
+        if (advanceButton) advanceButton.style.display = user.empId ? 'inline-flex' : 'none';
+        if (user.username && loadedAdvancesUsername !== String(user.username) && !loadingAdvancesRequest) {
+            loadSalaryAdvances().catch(error => console.error('Failed to load salary advances:', error));
+        } else if (loadedAdvancesUsername === String(user.username)) {
+            renderSalaryAdvances();
+        }
         const userEmpId = user.empId ? String(user.empId) : null;
         const userDept = getUserDepartment(user);
 

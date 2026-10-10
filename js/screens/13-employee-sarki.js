@@ -111,13 +111,51 @@ function generateEmployeeSelfSarki() {
     const [fromDate, toDate] = cycleSelect.value.split('|');
     const cycleKey = `${fromDate}_${toDate}`;
 
-    // تصفية حركات الحضور والانصراف للموظف فقط في الفترة المحددة
-    const empRecords = attendanceRecords.filter(r => {
-        if (r.empId !== empId) return false;
-        if (fromDate && r.date < fromDate) return false;
-        if (toDate && r.date > toDate) return false;
-        return true;
-    });
+    if (typeof window.ensurePayrollCycleInputs !== 'function' ||
+        typeof window.payrollCycleInputsReady !== 'function') {
+        if (tbody) {
+            tbody.replaceChildren();
+            const row = tbody.insertRow();
+            const cell = row.insertCell();
+            cell.colSpan = 7;
+            cell.textContent = 'تعذر تحميل خدمة الحضور وأقساط السلف.';
+        }
+        if (typeof showToast === 'function') showToast('خدمة بيانات الراتب غير متاحة. أعد تحميل التطبيق.', 'error');
+        return;
+    }
+    if (!window.payrollCycleInputsReady(fromDate, toDate)) {
+        if (tbody) {
+            tbody.replaceChildren();
+            const row = tbody.insertRow();
+            const cell = row.insertCell();
+            cell.colSpan = 7;
+            cell.textContent = 'جارٍ تحميل الحضور المعتمد وأقساط السلف...';
+        }
+        window.ensurePayrollCycleInputs(fromDate, toDate)
+            .then(() => {
+                if (cycleSelect.value === `${fromDate}|${toDate}`) generateEmployeeSelfSarki();
+            })
+            .catch(error => {
+                if (cycleSelect.value !== `${fromDate}|${toDate}`) return;
+                if (tbody) {
+                    tbody.replaceChildren();
+                    const row = tbody.insertRow();
+                    const cell = row.insertCell();
+                    cell.colSpan = 7;
+                    cell.textContent = error.message || 'تعذر تحميل بيانات الراتب.';
+                }
+                if (typeof showToast === 'function') showToast(error.message, 'error');
+            });
+        return;
+    }
+
+    window.activePayrollCycleKey = cycleKey;
+    if (typeof calculateEmployeeBiometricAttendance !== 'function') {
+        if (typeof showToast === 'function') showToast('محرك احتساب الحضور بالبصمة غير متاح.', 'error');
+        return;
+    }
+    const biometricData = calculateEmployeeBiometricAttendance(emp, fromDate, toDate);
+    const empRecords = biometricData.dailyRecords || [];
 
     if (tbody) tbody.innerHTML = '';
     if (tfoot) tfoot.innerHTML = '';
@@ -244,7 +282,11 @@ function generateEmployeeSelfSarki() {
     setTxt('emp-sarki-tot-additions', totalAdditions.toLocaleString('ar-EG', {minimumFractionDigits: 2}) + ' ج.م');
 
     // 3. جدول الاستقطاعات (من شاشة التسويات)
-    const advVal = Number(adj.advances) || 0;
+    const legacyAdvance = Number(adj.advances) || 0;
+    const loanInstallment = typeof window.getPayrollLoanInstallment === 'function'
+        ? window.getPayrollLoanInstallment(emp.id, cycleKey)
+        : 0;
+    const advVal = Math.round((legacyAdvance + loanInstallment) * 100) / 100;
     const insVal = Number(adj.insurance) || 0;
     const penVal = Number(adj.penalties) || 0;
     const supVal = Number(adj.supplies) || 0;

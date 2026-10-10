@@ -131,6 +131,11 @@
 
     // جلب حركات البصمات من الذاكرة أو التخزين المحلي
     function getSmartPunchesDb() {
+        const activeCycle = window.activePayrollCycleKey;
+        const cycleInputs = activeCycle && window.payrollCycleInputs
+            ? window.payrollCycleInputs[activeCycle]
+            : null;
+        if (cycleInputs && Array.isArray(cycleInputs.punches)) return cycleInputs.punches;
         if (typeof window.smartPunchesList !== 'undefined' && Array.isArray(window.smartPunchesList) && window.smartPunchesList.length > 0) {
             return window.smartPunchesList;
         }
@@ -167,6 +172,117 @@
         if (typeof onComplete === 'function') onComplete(punches);
         return punches;
     }
+
+    const payrollCycleInputRequests = new Map();
+    let payrollCycleInputOwner = null;
+
+    function getPayrollCalculationModePreference() {
+        try {
+            if (localStorage.getItem('erp_payroll_calc_mode_migration') !== 'face-default-v1') {
+                localStorage.setItem('erp_payroll_calc_mode', 'punch');
+                localStorage.setItem('erp_payroll_calc_mode_migration', 'face-default-v1');
+            }
+            return localStorage.getItem('erp_payroll_calc_mode') === 'manual' ? 'manual' : 'punch';
+        } catch (error) {
+            console.warn('[Payroll] Could not migrate or read the calculation mode preference.', error);
+            return 'punch';
+        }
+    }
+
+    function payrollCycleInputKey(startDate, endDate) {
+        return `${startDate}_${endDate}`;
+    }
+
+    function payrollInputOwnerKey() {
+        const user = window.currentUser || {};
+        return `${user.username || ''}:${user.role || ''}:${user.empId || ''}`;
+    }
+
+    function payrollCycleInputsReady(startDate, endDate) {
+        const key = payrollCycleInputKey(startDate, endDate);
+        return payrollCycleInputOwner === payrollInputOwnerKey() &&
+            Boolean(window.payrollCycleInputs && window.payrollCycleInputs[key]);
+    }
+
+    async function ensurePayrollCycleInputs(startDate, endDate) {
+        const key = payrollCycleInputKey(startDate, endDate);
+        const owner = payrollInputOwnerKey();
+        if (payrollCycleInputOwner !== owner) {
+            payrollCycleInputOwner = owner;
+            window.payrollCycleInputs = {};
+            window.activePayrollCycleKey = null;
+            window.smartPunchesList = [];
+        }
+        window.activePayrollCycleKey = key;
+        window.payrollCycleInputs = window.payrollCycleInputs || {};
+        if (window.payrollCycleInputs[key]) return window.payrollCycleInputs[key];
+        const requestKey = `${owner}:${key}`;
+        if (payrollCycleInputRequests.has(requestKey)) return payrollCycleInputRequests.get(requestKey);
+
+        const request = (async () => {
+            const punches = [];
+            let cursor = null;
+            let hasMore = true;
+            while (hasMore) {
+                const params = new URLSearchParams({
+                    startDate,
+                    endDate,
+                    limit: '500'
+                });
+                if (cursor) params.set('cursor', cursor);
+                const response = await window.authenticatedFetch(
+                    `/api/attendance/punches?${params.toString()}`
+                );
+                const result = await response.json();
+                if (!response.ok || !result.success || !Array.isArray(result.punches)) {
+                    throw new Error(result.message || 'تعذر تحميل سجل الحضور المعتمد للراتب.');
+                }
+                punches.push(...result.punches);
+                hasMore = result.hasMore === true;
+                cursor = result.nextCursor || null;
+                if (hasMore && !cursor) {
+                    throw new Error('تعذر إكمال صفحات سجل الحضور للراتب.');
+                }
+            }
+
+            const params = new URLSearchParams({ startDate, endDate });
+            const response = await window.authenticatedFetch(
+                `/api/advances/installments?${params.toString()}`
+            );
+            const result = await response.json();
+            if (!response.ok || !result.success || !Array.isArray(result.installments)) {
+                throw new Error(result.message || 'تعذر تحميل أقساط السلف لدورة الراتب.');
+            }
+            const installmentTotals = {};
+            result.installments.forEach(installment => {
+                const empId = String(installment.empId || '');
+                const amount = Number(installment.amount);
+                if (empId && Number.isFinite(amount) && amount > 0) {
+                    installmentTotals[empId] = (installmentTotals[empId] || 0) + amount;
+                }
+            });
+            const inputs = { punches, installmentTotals };
+            if (payrollCycleInputOwner !== owner || payrollInputOwnerKey() !== owner) return inputs;
+            window.payrollCycleInputs[key] = inputs;
+            window.smartPunchesList = punches;
+            return inputs;
+        })().finally(() => payrollCycleInputRequests.delete(requestKey));
+
+        payrollCycleInputRequests.set(requestKey, request);
+        return request;
+    }
+
+    function getPayrollLoanInstallment(empId, cycleKey) {
+        if (payrollCycleInputOwner !== payrollInputOwnerKey()) return 0;
+        const inputs = window.payrollCycleInputs && window.payrollCycleInputs[cycleKey];
+        if (!inputs || !inputs.installmentTotals) return 0;
+        return Number(inputs.installmentTotals[String(empId)]) || 0;
+    }
+
+    window.ensurePayrollCycleInputs = ensurePayrollCycleInputs;
+    window.payrollCycleInputsReady = payrollCycleInputsReady;
+    window.getPayrollLoanInstallment = getPayrollLoanInstallment;
+    window.getPayrollCalculationModePreference = getPayrollCalculationModePreference;
 
     // تحويل نص الوقت (HH:MM أو HH:MM:SS) إلى دقائق منذ منتصف الليل
     function timeStrToMinutes(timeStr) {
@@ -325,8 +441,8 @@
             const matchName = pEmpName && empNameClean && (pEmpName === empNameClean || pEmpName.includes(empNameClean) || empNameClean.includes(pEmpName));
             if (!matchId && !matchName) return false;
 
-            // استبعاد الحركات المرفوضة خارج النطاق إن وجدت
-            if (p.status === 'REJECTED_OUT_OF_RANGE') return false;
+            // Keep legacy status-less punches, but never count an explicitly unaccepted status.
+            if (p.status && !['ACCEPTED', 'MANUAL_ACCEPTED'].includes(p.status)) return false;
 
             const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
             if (startDate && pDate < startDate) return false;

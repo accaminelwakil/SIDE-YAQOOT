@@ -7,7 +7,7 @@
 (function() {
     let currentPunchesList = [];
     let punchLoadGeneration = 0;
-    let punchPayrollMode = localStorage.getItem('erp_payroll_calc_mode') || 'manual'; // 'manual' or 'punch'
+    let punchPayrollMode = window.getPayrollCalculationModePreference();
 
     // تهيئة الشاشة
     function renderPunchesPayrollScreen() {

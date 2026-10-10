@@ -2,7 +2,7 @@
 
     let payrollSummaryHistoryStack = [];
     let savedPayrollSummaryCycles = JSON.parse(localStorage.getItem('erp_saved_payroll_cycles_db') || '{}');
-    let payrollCalculationMode = localStorage.getItem('erp_payroll_calc_mode') || 'manual'; // 'manual' (الافتراضي) or 'punch'
+    let payrollCalculationMode = window.getPayrollCalculationModePreference();
 
     function setPayrollSummaryCalcMode(mode) {
         payrollCalculationMode = (mode === 'punch') ? 'punch' : 'manual';
@@ -25,14 +25,14 @@
 
         if (sourceLabel) {
             if (payrollCalculationMode === 'manual') {
-                sourceLabel.textContent = '[ ✍️ التسجيل اليدوي لشاشة الحضور والانصراف (الأساسي والافتراضي) ]';
+                sourceLabel.textContent = '[ ✍️ التسجيل اليدوي لشاشة الحضور والانصراف ]';
                 sourceLabel.style.color = '#15803d';
                 if (statusStrip) {
                     statusStrip.style.background = '#f0fdf4';
                     statusStrip.style.borderColor = '#86efac';
                 }
             } else {
-                sourceLabel.textContent = '[ 📱 التسجيل الذكي / بيانات البصمة الفعلية (اختياري) ]';
+                sourceLabel.textContent = '[ 📱 الحضور المعتمد: بصمات الوجه والتسجيل اليدوي المعتمد ]';
                 sourceLabel.style.color = '#1d4ed8';
                 if (statusStrip) {
                     statusStrip.style.background = '#eff6ff';
@@ -353,8 +353,26 @@
         const endInput = document.getElementById('psummary-end-date');
 
         const startDate = startInput ? startInput.value : '';
-
         const endDate = endInput ? endInput.value : '';
+
+        if (
+            startDate && endDate &&
+            typeof window.ensurePayrollCycleInputs === 'function' &&
+            !window.payrollCycleInputsReady(startDate, endDate)
+        ) {
+            const tbody = document.getElementById('payroll-summary-tbody');
+            if (tbody) tbody.innerHTML = '<tr><td colspan="40" style="padding:18px;text-align:center;">جارٍ تحميل الحضور وأقساط السلف للدورة...</td></tr>';
+            window.ensurePayrollCycleInputs(startDate, endDate)
+                .then(() => renderPayrollSummaryTable())
+                .catch(error => {
+                    if (typeof showToast === 'function') showToast(error.message, 'error');
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="40" style="padding:18px;text-align:center;color:#b91c1c;">${error.message}</td></tr>`;
+                });
+            return;
+        }
+        if (startDate && endDate) {
+            window.activePayrollCycleKey = `${startDate}_${endDate}`;
+        }
 
 
 
@@ -468,7 +486,7 @@
                     empMissingIssueText = bio.missingIssues.map(m => `${m.date}: ${m.issue}`).join(' | ');
                 }
             } else {
-                // ── النظام الأساسي والافتراضي: شاشة الحضور والانصراف اليدوية ──
+                // ── سجلات الحضور اليدوية القديمة ──
                 const empRecords = attendanceRecords.filter(r => {
                     return r.empId === emp.id && (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate);
                 });
@@ -520,7 +538,11 @@
 
 
 
-            const advances = Number(adj.advances) || 0;
+            const legacyAdvances = Number(adj.advances) || 0;
+            const loanInstallment = typeof window.getPayrollLoanInstallment === 'function'
+                ? window.getPayrollLoanInstallment(emp.id, cycleKey)
+                : 0;
+            const advances = Math.round((legacyAdvances + loanInstallment) * 100) / 100;
 
             const penalties = Number(adj.penalties) || 0;
 
@@ -1237,5 +1259,3 @@
     window.closePayrollAuditLogModal = closePayrollAuditLogModal;
     window.renderPayrollAuditLogTable = renderPayrollAuditLogTable;
     window.clearPayrollAuditLogHistory = clearPayrollAuditLogHistory;
-
-
