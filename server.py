@@ -162,6 +162,42 @@ def verify_password(password, credentials):
         return False
 
 
+def verify_attendance_manager_password(username, password, db):
+    username = normalized_username(username)
+    if not username or not password or len(password) > 256:
+        return False
+
+    profiles = user_profiles_document(db).get().to_dict() or {}
+    users = profiles.get("list", [])
+    user = next(
+        (
+            entry for entry in users
+            if isinstance(entry, dict)
+            and normalized_username(entry.get("username")) == username
+        ),
+        None,
+    )
+    if not user:
+        return False
+
+    credential_snapshot = db.collection("sidi_yaqout_auth").document(
+        auth_user_key(username)
+    ).get()
+    bootstrap_password = os.environ.get("FIREBASE_BOOTSTRAP_ADMIN_PASSWORD", "")
+    if (
+        username == "admin"
+        and bootstrap_password
+        and hmac_compare(password, bootstrap_password)
+        and not credential_snapshot.exists
+    ):
+        return True
+    if credential_snapshot.exists:
+        return verify_password(password, credential_snapshot.to_dict())
+    if username == "admin" and bootstrap_password:
+        return False
+    return hmac_compare(password, str(user.get("pin", "")))
+
+
 def normalized_username(username):
     return str(username or "").strip().lower()
 
@@ -921,9 +957,11 @@ def attendance_check_in_api():
 
 
 @app.route("/api/attendance/face/enrollments", methods=["GET", "POST"])
-@require_firebase_auth(admin_only=True)
+@require_firebase_auth()
 def attendance_face_enrollments_api():
     if request.method == "GET":
+        if not leaves_is_admin(g.auth_claims):
+            return jsonify({"success": False, "message": "عرض تسجيلات الوجه متاح لمدير النظام فقط."}), 403
         try:
             return jsonify({"success": True, "enrollments": get_face_store().list_enrollments()})
         except FaceSystemUnavailable as exc:
@@ -945,9 +983,19 @@ def attendance_face_enrollments_api():
     if storage_error:
         return storage_error
     try:
-        employee = employee_records_by_id().get(emp_id)
+        _, database = get_firebase_admin()
+        employees = leaves_employee_records(database)
+        employee = next(
+            (entry for entry in employees if str(entry.get("id") or "") == emp_id),
+            None,
+        )
         if not employee:
             return jsonify({"success": False, "message": "الموظف غير موجود في سجل الموظفين."}), 404
+        if not attendance_can_manage_employee(g.auth_claims, employee, employees):
+            return jsonify({
+                "success": False,
+                "message": "تسجيل الوجه متاح لمدير النظام أو المدير المباشر للموظف فقط.",
+            }), 403
         image_bytes = face_image_from_request(data)
         result = get_face_store().enroll(
             emp_id,
@@ -967,9 +1015,22 @@ def attendance_face_enrollments_api():
 
 
 @app.route("/api/attendance/face/enrollments/<emp_id>", methods=["DELETE"])
-@require_firebase_auth(admin_only=True)
+@require_firebase_auth()
 def attendance_face_enrollment_delete_api(emp_id):
     try:
+        _, database = get_firebase_admin()
+        employees = leaves_employee_records(database)
+        employee = next(
+            (entry for entry in employees if str(entry.get("id") or "") == str(emp_id)),
+            None,
+        )
+        if not employee:
+            return jsonify({"success": False, "message": "الموظف غير موجود في سجل الموظفين."}), 404
+        if not attendance_can_manage_employee(g.auth_claims, employee, employees):
+            return jsonify({
+                "success": False,
+                "message": "حذف قالب الوجه متاح لمدير النظام أو المدير المباشر للموظف فقط.",
+            }), 403
         removed = get_face_store().remove_enrollment(str(emp_id)[:100])
         if not removed:
             return jsonify({"success": False, "message": "لا يوجد تسجيل وجه لهذا الموظف."}), 404
@@ -1082,22 +1143,36 @@ def attendance_manual_api():
             "success": False,
             "message": "اختر الموظف ونوع الحركة واكتب سبباً واضحاً للتسجيل اليدوي.",
         }), 400
+    password = str(data.get("password") or "")
+    if not password or len(password) > 256:
+        return jsonify({"success": False, "message": "أدخل كلمة مرور حسابك لتأكيد التسجيل اليدوي."}), 400
+    username = normalized_username(claims.get("username"))
+    attempt_key = f"{request.remote_addr or 'unknown'}:attendance-manual:{username}"
+    now = time.time()
+    with _login_attempts_lock:
+        attempts = [timestamp for timestamp in _login_attempts.get(attempt_key, []) if now - timestamp < 300]
+        if len(attempts) >= 10:
+            return jsonify({"success": False, "message": "محاولات كثيرة. يرجى الانتظار خمس دقائق."}), 429
     storage_error = require_durable_attendance_storage()
     if storage_error:
         return storage_error
     try:
-        employees = leaves_employee_records(get_firebase_admin()[1])
+        _, database = get_firebase_admin()
+        employees = leaves_employee_records(database)
         employee = next(
             (entry for entry in employees if str(entry.get("id") or "") == emp_id),
             None,
         )
         if not employee:
             return jsonify({"success": False, "message": "الموظف غير موجود في سجل الموظفين."}), 404
-        if not leaves_can_manage_employee(claims, employee, employees, allow_self=False):
+        if not attendance_can_manage_employee(claims, employee, employees):
             return jsonify({
                 "success": False,
                 "message": "التسجيل اليدوي متاح لمدير النظام أو المدير المباشر للموظف فقط.",
             }), 403
+        if not verify_attendance_manager_password(username, password, database):
+            record_login_failure(attempt_key, now)
+            return jsonify({"success": False, "message": "كلمة المرور غير صحيحة."}), 401
         punch = build_attendance_punch(
             emp_id,
             str(employee.get("name") or emp_id)[:120],
@@ -1461,6 +1536,19 @@ def leaves_can_manage_employee(claims, employee, employees, allow_self=True):
         or bool(employee.get("managerName") and employee.get("managerName") == claims.get("fullName"))
         or bool(actor.get("job") and employee.get("job") and str(actor["job"]).strip() == str(employee["job"]).strip())
     )
+
+
+def attendance_can_manage_employee(claims, employee, employees):
+    if leaves_is_admin(claims):
+        return True
+    actor_id = str(claims.get("empId") or "")
+    if not leaves_is_manager(claims) or not actor_id or actor_id == str(employee.get("id") or ""):
+        return False
+    actor = next((entry for entry in employees if str(entry.get("id") or "") == actor_id), {})
+    manager_id = str(employee.get("managerId") or "")
+    manager_name = str(employee.get("managerName") or "").strip()
+    actor_name = str(claims.get("fullName") or actor.get("name") or "").strip()
+    return manager_id == actor_id or bool(manager_name and manager_name == actor_name)
 
 
 def leaves_visible_to_user(claims, item, employees):

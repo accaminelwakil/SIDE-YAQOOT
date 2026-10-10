@@ -62,6 +62,53 @@ class FaceAttendanceStoreTests(unittest.TestCase):
         with self.assertRaises(face_attendance.FaceSystemUnavailable):
             face_attendance.FaceAttendanceStore.decode_encryption_key("not-a-key")
 
+    def test_attendance_password_check_uses_the_authenticated_accounts_credential(self):
+        password = "Manager password!"
+        credentials = server.hash_password(password)
+
+        class Snapshot:
+            exists = True
+
+            def __init__(self, value):
+                self.value = value
+
+            def to_dict(self):
+                return self.value
+
+            def get(self):
+                return self
+
+        class Collection:
+            def __init__(self, snapshots):
+                self.snapshots = snapshots
+
+            def document(self, document_id):
+                return self.snapshots[document_id]
+
+        class Database:
+            def collection(self, collection_name):
+                if collection_name == "sidi_yaqout_erp":
+                    return Collection({
+                        "users": Snapshot({"list": [{"username": "manager"}]})
+                    })
+                return Collection({
+                    server.auth_user_key("manager"): Snapshot(credentials)
+                })
+
+        with patch(
+            "server.user_profiles_document",
+            side_effect=lambda db: db.collection("sidi_yaqout_erp").document("users"),
+        ):
+            self.assertTrue(
+                server.verify_attendance_manager_password("manager", password, Database())
+            )
+            self.assertFalse(
+                server.verify_attendance_manager_password("manager", "wrong password", Database())
+            )
+            self.assertFalse(
+                server.verify_attendance_manager_password("unknown", password, Database())
+            )
+
 
 class AttendanceFaceApiTests(unittest.TestCase):
     def setUp(self):
@@ -196,19 +243,32 @@ class AttendanceFaceApiTests(unittest.TestCase):
 
     def test_manual_punch_is_audited_and_duplicate_type_is_rejected(self):
         self.claims["role"] = "admin"
-        with patch(
-            "server.leaves_employee_records",
-            return_value=[{"id": "emp-1", "name": "Employee One"}],
+        with (
+            patch(
+                "server.leaves_employee_records",
+                return_value=[{"id": "emp-1", "name": "Employee One"}],
+            ),
+            patch("server.verify_attendance_manager_password", return_value=True),
         ):
             first_response = self.client.post(
                 "/api/attendance/manual",
                 headers=self.headers,
-                json={"empId": "emp-1", "type": "in", "reason": "Camera unavailable"},
+                json={
+                    "empId": "emp-1",
+                    "type": "in",
+                    "reason": "Camera unavailable",
+                    "password": "manager-password",
+                },
             )
             duplicate_response = self.client.post(
                 "/api/attendance/manual",
                 headers=self.headers,
-                json={"empId": "emp-1", "type": "in", "reason": "Duplicate test"},
+                json={
+                    "empId": "emp-1",
+                    "type": "in",
+                    "reason": "Duplicate test",
+                    "password": "manager-password",
+                },
             )
 
         self.assertEqual(first_response.status_code, 200)
@@ -222,15 +282,100 @@ class AttendanceFaceApiTests(unittest.TestCase):
     def test_direct_supervisor_can_manually_record_their_employee(self):
         self.claims["role"] = "supervisor"
         employee = {"id": "emp-1", "name": "Employee One", "managerId": "manager-1"}
-        with patch("server.leaves_employee_records", return_value=[employee]):
+        with (
+            patch("server.leaves_employee_records", return_value=[employee]),
+            patch("server.verify_attendance_manager_password", return_value=True),
+        ):
             response = self.client.post(
                 "/api/attendance/manual",
                 headers=self.headers,
-                json={"empId": "emp-1", "type": "in", "reason": "Camera unavailable"},
+                json={
+                    "empId": "emp-1",
+                    "type": "in",
+                    "reason": "Camera unavailable",
+                    "password": "manager-password",
+                },
             )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["punch"]["source"], "manual_override")
+
+    def test_supervisor_cannot_manually_record_an_employee_they_do_not_manage(self):
+        self.claims["role"] = "supervisor"
+        employees = [
+            {"id": "manager-1", "name": "Attendance Manager", "job": "Nursing"},
+            {"id": "emp-1", "name": "Employee One", "job": "Nursing", "managerId": "manager-2"},
+        ]
+        with (
+            patch("server.leaves_employee_records", return_value=employees),
+            patch("server.verify_attendance_manager_password", return_value=True),
+        ):
+            response = self.client.post(
+                "/api/attendance/manual",
+                headers=self.headers,
+                json={
+                    "empId": "emp-1",
+                    "type": "in",
+                    "reason": "Camera unavailable",
+                    "password": "manager-password",
+                },
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(server.load_punches(), [])
+
+    def test_manual_punch_requires_the_authenticated_manager_password(self):
+        self.claims["role"] = "admin"
+        with (
+            patch(
+                "server.leaves_employee_records",
+                return_value=[{"id": "emp-1", "name": "Employee One"}],
+            ),
+            patch("server.verify_attendance_manager_password", return_value=False),
+        ):
+            response = self.client.post(
+                "/api/attendance/manual",
+                headers=self.headers,
+                json={
+                    "empId": "emp-1",
+                    "type": "in",
+                    "reason": "Camera unavailable",
+                    "password": "wrong-password",
+                },
+            )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(server.load_punches(), [])
+
+    def test_face_enrollment_is_available_to_direct_manager_only(self):
+        self.claims["role"] = "supervisor"
+        employee = {"id": "emp-1", "name": "Employee One", "managerId": "manager-1"}
+
+        class FakeFaceStore:
+            def enroll(self, emp_id, name, image, enrolled_by, model_directory):
+                return {"empId": emp_id, "empName": name}
+
+        with (
+            patch("server.get_firebase_admin", return_value=(self.firebase, object())),
+            patch("server.leaves_employee_records", return_value=[employee]),
+            patch("server.require_durable_attendance_storage", return_value=None),
+            patch("server.face_image_from_request", return_value=b"camera-image"),
+            patch("server.get_face_store", return_value=FakeFaceStore()),
+        ):
+            allowed = self.client.post(
+                "/api/attendance/face/enrollments",
+                headers=self.headers,
+                json={"empId": "emp-1", "consentConfirmed": True},
+            )
+            employee["managerId"] = "someone-else"
+            denied = self.client.post(
+                "/api/attendance/face/enrollments",
+                headers=self.headers,
+                json={"empId": "emp-1", "consentConfirmed": True},
+            )
+
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(denied.status_code, 403)
 
 
 if __name__ == "__main__":

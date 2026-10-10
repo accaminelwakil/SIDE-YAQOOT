@@ -22,6 +22,23 @@
         return Array.isArray(window.employees) ? window.employees : [];
     }
 
+    function isAttendanceManager() {
+        const user = window.currentUser || {};
+        return user.role === 'admin' || user.role === 'manager' ||
+            user.role === 'supervisor' || user.isManager === true;
+    }
+
+    function canManageFaceEmployee(employee) {
+        const user = window.currentUser || {};
+        if (user.role === 'admin') return true;
+        if (!isAttendanceManager() || !user.empId || String(employee.id) === String(user.empId)) return false;
+        const employeeManagerId = String(employee.managerId || '');
+        const employeeManagerName = String(employee.managerName || '').trim();
+        const userName = String(user.fullName || '').trim();
+        return employeeManagerId === String(user.empId) ||
+            Boolean(employeeManagerName && userName && employeeManagerName === userName);
+    }
+
     function populateEmployeeSelect(selectId) {
         const select = document.getElementById(selectId);
         if (!select) return;
@@ -29,6 +46,10 @@
         select.replaceChildren(new Option(placeholder, ''));
         employeeList()
             .filter(employee => employee && employee.id !== undefined && employee.id !== null)
+            .filter(employee =>
+                !['face-enroll-employee', 'manual-attendance-employee'].includes(selectId) ||
+                canManageFaceEmployee(employee)
+            )
             .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ar'))
             .forEach(employee => {
                 const option = new Option(
@@ -111,21 +132,25 @@
         updateClock();
         if (clockInterval) clearInterval(clockInterval);
         clockInterval = setInterval(updateClock, 1000);
+        const canManageAttendance = isAttendanceManager();
+        const managedEmployees = employeeList().filter(canManageFaceEmployee);
         populateEmployeeSelect('face-enroll-employee');
         populateEmployeeSelect('manual-attendance-employee');
         const adminEnrollment = document.getElementById('face-enrollment-admin');
         if (adminEnrollment) {
             adminEnrollment.style.display =
-                window.currentUser && window.currentUser.role === 'admin' ? 'block' : 'none';
+                canManageAttendance && managedEmployees.length ? 'block' : 'none';
+        }
+        const manualButton = document.getElementById('manual-attendance-open-btn');
+        if (manualButton) {
+            manualButton.style.display =
+                canManageAttendance && managedEmployees.length ? 'flex' : 'none';
         }
         setStatus('face-punch-status', 'اسمح للمتصفح باستخدام الكاميرا، ثم قف بمفردك أمامها.', false);
         try {
             await startCamera();
         } catch (error) {
             setStatus('face-punch-status', error.message, true);
-        }
-        if (window.currentUser && window.currentUser.role === 'admin') {
-            loadFaceEnrollments();
         }
     }
 
@@ -205,6 +230,10 @@
     }
 
     function openManualAttendanceModal() {
+        if (!isAttendanceManager()) {
+            setStatus('face-punch-status', 'التسجيل اليدوي متاح للأدمن أو المدير المباشر فقط.', true);
+            return;
+        }
         const modal = document.getElementById('modal-attendance-manual');
         if (!modal) return;
         populateEmployeeSelect('manual-attendance-employee');
@@ -221,13 +250,18 @@
         const empId = document.getElementById('manual-attendance-employee')?.value || '';
         const type = document.getElementById('manual-attendance-type')?.value || '';
         const reason = document.getElementById('manual-attendance-reason')?.value.trim() || '';
+        const password = document.getElementById('manual-attendance-password')?.value || '';
         const button = document.getElementById('manual-attendance-submit');
+        if (!password) {
+            setStatus('manual-attendance-status', 'أدخل كلمة مرور حسابك لتأكيد التسجيل اليدوي.', true);
+            return;
+        }
         if (button) button.disabled = true;
         try {
             const response = await window.authenticatedFetch('/api/attendance/manual', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ empId, type, reason })
+                body: JSON.stringify({ empId, type, reason, password })
             });
             const result = await readResponse(response);
             setStatus('manual-attendance-status', result.message, false);
@@ -236,6 +270,7 @@
         } catch (error) {
             setStatus('manual-attendance-status', error.message, true);
         } finally {
+            document.getElementById('manual-attendance-password').value = '';
             if (button) button.disabled = false;
         }
     }
@@ -263,56 +298,10 @@
             const result = await readResponse(response);
             setStatus('face-enrollment-status', `تم تسجيل وجه ${result.enrollment.empName} بنجاح.`, false);
             document.getElementById('face-enrollment-consent').checked = false;
-            await loadFaceEnrollments();
         } catch (error) {
             setStatus('face-enrollment-status', error.message, true);
         } finally {
             if (button) button.disabled = false;
-        }
-    }
-
-    async function loadFaceEnrollments() {
-        const list = document.getElementById('face-enrollment-list');
-        if (!list) return;
-        list.textContent = 'جارٍ تحميل سجل تسجيلات الوجه...';
-        try {
-            const response = await window.authenticatedFetch('/api/attendance/face/enrollments');
-            const result = await readResponse(response);
-            list.replaceChildren();
-            if (!result.enrollments.length) {
-                list.textContent = 'لا توجد وجوه مسجلة.';
-                return;
-            }
-            result.enrollments.forEach(enrollment => {
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #e2e8f0;';
-                const label = document.createElement('span');
-                label.textContent = `${enrollment.empName} (${enrollment.empId})`;
-                const removeButton = document.createElement('button');
-                removeButton.type = 'button';
-                removeButton.className = 'btn-warning';
-                removeButton.textContent = 'حذف الوجه';
-                removeButton.onclick = () => removeEmployeeFace(enrollment.empId);
-                row.append(label, removeButton);
-                list.appendChild(row);
-            });
-        } catch (error) {
-            list.textContent = error.message;
-        }
-    }
-
-    async function removeEmployeeFace(empId) {
-        if (!window.confirm('سيُحذف قالب الوجه نهائياً. هل تريد المتابعة؟')) return;
-        try {
-            const response = await window.authenticatedFetch(
-                `/api/attendance/face/enrollments/${encodeURIComponent(empId)}`,
-                { method: 'DELETE' }
-            );
-            await readResponse(response);
-            await loadFaceEnrollments();
-            setStatus('face-enrollment-status', 'تم حذف قالب الوجه.', false);
-        } catch (error) {
-            setStatus('face-enrollment-status', error.message, true);
         }
     }
 
@@ -406,7 +395,6 @@
     window.closeManualAttendanceModal = closeManualAttendanceModal;
     window.submitManualAttendance = submitManualAttendance;
     window.submitFaceEnrollment = submitFaceEnrollment;
-    window.loadFaceEnrollments = loadFaceEnrollments;
     window.openPunchesLogModal = openPunchesLogModal;
     window.closePunchesLogModal = closePunchesLogModal;
 })();
