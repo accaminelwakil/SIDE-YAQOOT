@@ -6,6 +6,11 @@ import threading
 import time
 import uuid
 from werkzeug.middleware.proxy_fix import ProxyFix
+from face_attendance import (
+    FaceAttendanceError,
+    FaceSystemUnavailable,
+    get_face_attendance_store,
+)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
@@ -19,7 +24,7 @@ def add_pwa_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(self)"
+    response.headers["Permissions-Policy"] = "camera=(self)"
     return response
 
 
@@ -60,7 +65,6 @@ def index():
 
 # ── إعدادات وتوابع الموقع الجغرافي (Geofencing Backend) ─────────────
 import json
-import math
 import datetime
 import base64
 import glob
@@ -528,54 +532,16 @@ def auth_manage_user_api(username):
         app.logger.exception("Updating user failed")
         return jsonify({"success": False, "message": "تعذر تحديث المستخدم."}), 500
 
-CONFIG_FILE = os.path.join(BASE_DIR, "geofence_config.json")
 PUNCHES_FILE = os.path.join(BASE_DIR, "attendance_punches.json")
 RAILWAY_VOLUME_MOUNT_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
 PUNCHES_DATA_DIR = RAILWAY_VOLUME_MOUNT_PATH or BASE_DIR
 PUNCHES_LOG_FILE = os.path.join(PUNCHES_DATA_DIR, "attendance_punches.jsonl")
 PUNCHES_PARTITION_DIR = os.path.join(PUNCHES_DATA_DIR, "punches_by_month")
 PUNCHES_SQLITE_FILE = os.path.join(PUNCHES_DATA_DIR, "punches.sqlite3")
+FACE_MODEL_DIRECTORY = os.path.join(PUNCHES_DATA_DIR, "face_models")
 PUNCHES_LOCK = threading.Lock()
 LEAVES_PERMISSIONS_PATH = ("sidi_yaqout_erp", "leavesPermissions")
-
-DEFAULT_GEOFENCE_CONFIG = {
-    "latitude": 31.2001,
-    "longitude": 29.9187,
-    "radius_meters": 50.0,
-    "workplace_name": "مقر عيادات سيدي ياقوت التخصصية",
-    "enabled": True
-}
-
-
-def load_geofence_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return DEFAULT_GEOFENCE_CONFIG.copy()
-
-
-def save_geofence_config(cfg):
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Error saving geofence config: {e}")
-
-
-def calculate_haversine_distance(lat1, lon1, lat2, lon2):
-    """حساب المسافة الدقيقة بين نقطتين بالمتر باستخدام قانون هافرسين"""
-    R = 6371000.0  # نصف قطر الأرض بالمتر
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-    a = math.sin(delta_phi / 2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0)**2
-    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-    return R * c
-
+FACE_TEMPLATE_ENCRYPTION_KEY = os.environ.get("FACE_TEMPLATE_ENCRYPTION_KEY", "")
 
 def load_punches():
     with PUNCHES_LOCK, open_punch_database() as connection:
@@ -635,6 +601,29 @@ def open_punch_database():
             "CREATE TABLE IF NOT EXISTS imported_punch_sources (path TEXT PRIMARY KEY)"
         )
         connection.execute(
+            "CREATE TABLE IF NOT EXISTS attendance_punch_guard ("
+            "emp_id TEXT NOT NULL, punch_date TEXT NOT NULL, punch_type TEXT NOT NULL, "
+            "PRIMARY KEY (emp_id, punch_date, punch_type))"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS face_templates ("
+            "emp_id TEXT PRIMARY KEY, employee_name TEXT NOT NULL, "
+            "nonce BLOB NOT NULL, encrypted_template BLOB NOT NULL, "
+            "updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, consented_at TEXT NOT NULL)"
+        )
+        face_template_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(face_templates)").fetchall()
+        }
+        if "consented_at" not in face_template_columns:
+            connection.execute(
+                "ALTER TABLE face_templates ADD COLUMN consented_at TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS face_challenges ("
+            "token_hash TEXT PRIMARY KEY, emp_id TEXT NOT NULL, "
+            "employee_name TEXT NOT NULL, punch_type TEXT NOT NULL, expires_at INTEGER NOT NULL)"
+        )
+        connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_punches_date_order "
             "ON punches (punch_date, sort_timestamp DESC, punch_id DESC)"
         )
@@ -681,6 +670,35 @@ def save_punch(punch_record):
         raise ValueError("Attendance punch has an invalid date")
     serialized = json.dumps(punch_record, ensure_ascii=False, separators=(",", ":"))
     with PUNCHES_LOCK, open_punch_database() as connection:
+        if punch_record.get("source") in ("face_recognition", "manual_override"):
+            existing_rows = connection.execute(
+                "SELECT payload FROM punches WHERE emp_id = ? AND punch_date = ?",
+                (str(punch_record.get("empId") or ""), punch_date),
+            ).fetchall()
+            for (existing_payload,) in existing_rows:
+                existing = json.loads(existing_payload)
+                if (
+                    existing.get("type") == punch_record.get("type")
+                    and existing.get("status") in ("ACCEPTED", "MANUAL_ACCEPTED")
+                    and existing.get("source") in ("gps_punch", "face_recognition", "manual_override")
+                ):
+                    raise DuplicateAttendancePunchError(
+                        "تم تسجيل هذه الحركة للموظف في اليوم نفسه بالفعل."
+                    )
+            try:
+                connection.execute(
+                    "INSERT INTO attendance_punch_guard (emp_id, punch_date, punch_type) "
+                    "VALUES (?, ?, ?)",
+                    (
+                        str(punch_record.get("empId") or ""),
+                        punch_date,
+                        str(punch_record.get("type") or ""),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise DuplicateAttendancePunchError(
+                    "تم تسجيل هذه الحركة للموظف في اليوم نفسه بالفعل."
+                ) from exc
         connection.execute(
             "INSERT OR IGNORE INTO punches (punch_id, sort_timestamp, emp_id, punch_date, payload) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -692,6 +710,10 @@ def save_punch(punch_record):
                 serialized
             )
         )
+
+
+class DuplicateAttendancePunchError(ValueError):
+    pass
 
 
 def read_punch_jsonl(file_path):
@@ -785,124 +807,312 @@ def load_punches_page(start_date=None, end_date=None, limit=200, cursor=None, em
     }
 
 
+def attendance_kiosk_allowed(claims):
+    return (
+        claims.get("role") == "admin"
+        or (claims.get("screenAccess") or {}).get("screen-attendance") == "edit"
+    )
+
+
+def require_durable_attendance_storage():
+    if os.environ.get("RAILWAY_ENVIRONMENT") and not RAILWAY_VOLUME_MOUNT_PATH:
+        app.logger.error("Attendance and face-template storage is not durable: Railway Volume is missing")
+        return jsonify({
+            "success": False,
+            "status": "ATTENDANCE_STORAGE_UNAVAILABLE",
+            "message": "تسجيل الحضور متوقف لحماية السجل؛ يلزم ربط وحدة تخزين دائمة بالخادم."
+        }), 503
+    return None
+
+
+def get_face_store():
+    return get_face_attendance_store(
+        PUNCHES_SQLITE_FILE,
+        os.environ.get("FACE_TEMPLATE_ENCRYPTION_KEY", FACE_TEMPLATE_ENCRYPTION_KEY),
+    )
+
+
+def face_image_from_request(data):
+    if not isinstance(data, dict):
+        raise FaceAttendanceError("صيغة بيانات الكاميرا غير صالحة.")
+    image_value = data.get("image")
+    prefix = "data:image/jpeg;base64,"
+    if not isinstance(image_value, str) or not image_value.startswith(prefix):
+        raise FaceAttendanceError("تعذر قراءة صورة الوجه من الكاميرا.")
+    encoded = image_value[len(prefix):]
+    if len(encoded) > 2_800_000:
+        raise FaceAttendanceError("صورة الوجه أكبر من الحد المسموح.")
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise FaceAttendanceError("صيغة صورة الوجه غير صالحة.") from exc
+    if not image_bytes.startswith(b"\xff\xd8") or len(image_bytes) > 2 * 1024 * 1024:
+        raise FaceAttendanceError("يجب إرسال صورة JPEG صالحة لا تتجاوز 2 ميجابايت.")
+    return image_bytes
+
+
+def employee_records_by_id():
+    _, database = get_firebase_admin()
+    employees = leaves_employee_records(database)
+    return {str(employee.get("id") or ""): employee for employee in employees}
+
+
+def next_attendance_punch_type(emp_id, punch_date):
+    result = load_punches_page(
+        start_date=punch_date,
+        end_date=punch_date,
+        limit=1000,
+        employee_id=emp_id,
+    )
+    existing_types = {
+        item.get("type")
+        for item in result["punches"]
+        if item.get("status") in ("ACCEPTED", "MANUAL_ACCEPTED")
+        and item.get("type") in ("in", "out")
+    }
+    if "in" not in existing_types:
+        return "in"
+    if "out" not in existing_types:
+        return "out"
+    return None
+
+
+def build_attendance_punch(emp_id, emp_name, punch_type, source, recorded_by, reason=None):
+    now = datetime.datetime.now().astimezone()
+    punch_title = "حضور" if punch_type == "in" else "انصراف"
+    record = {
+        "id": f"punch_{uuid.uuid4().hex}",
+        "empId": str(emp_id),
+        "empName": str(emp_name),
+        "type": punch_type,
+        "typeTitle": punch_title,
+        "source": source,
+        "verificationMethod": "face" if source == "face_recognition" else "manual",
+        "status": "ACCEPTED" if source == "face_recognition" else "MANUAL_ACCEPTED",
+        "recordedBy": str(recorded_by.get("username") or "")[:100],
+        "recordedByName": str(
+            recorded_by.get("fullName") or recorded_by.get("username") or "مدير"
+        )[:120],
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "timestamp": now.isoformat(),
+    }
+    if reason:
+        record["manualReason"] = reason
+    return record
+
+
 @app.route("/api/geofence/config", methods=["GET", "POST"])
 @require_firebase_auth()
 def geofence_config_api():
-    if request.method == "POST":
-        if g.auth_claims.get("role") != "admin":
-            return jsonify({"success": False, "message": "هذه العملية متاحة لمدير النظام فقط."}), 403
-        data = request.get_json(silent=True) or {}
-        cfg = load_geofence_config()
-        try:
-            if "latitude" in data:
-                cfg["latitude"] = float(data["latitude"])
-            if "longitude" in data:
-                cfg["longitude"] = float(data["longitude"])
-            if "radius_meters" in data:
-                cfg["radius_meters"] = float(data["radius_meters"])
-            if not (-90 <= cfg["latitude"] <= 90 and -180 <= cfg["longitude"] <= 180):
-                raise ValueError("Coordinates are outside valid ranges")
-            if not (1 <= cfg["radius_meters"] <= 100000):
-                raise ValueError("Radius is outside valid range")
-        except (TypeError, ValueError):
-            return jsonify({"success": False, "message": "إعدادات الموقع الجغرافي غير صالحة."}), 400
-        if "workplace_name" in data:
-            cfg["workplace_name"] = str(data["workplace_name"]).strip()[:120]
-        if "enabled" in data:
-            if not isinstance(data["enabled"], bool):
-                return jsonify({"success": False, "message": "قيمة تفعيل النطاق الجغرافي غير صالحة."}), 400
-            cfg["enabled"] = data["enabled"]
-        save_geofence_config(cfg)
-        return jsonify({"success": True, "config": cfg, "message": "تم حفظ إعدادات الموقع الجغرافي بنجاح"})
-    else:
-        return jsonify(load_geofence_config())
+    return jsonify({
+        "success": False,
+        "message": "تم إيقاف تسجيل الحضور بالموقع الجغرافي. استخدم التعرف على الوجه أو التسجيل اليدوي.",
+    }), 410
 
 
 @app.route("/api/attendance/check-in", methods=["POST"])
 @require_firebase_auth()
 def attendance_check_in_api():
-    data = request.get_json(silent=True) or {}
-    emp_id = str(g.auth_claims.get("empId") or "").strip()
-    emp_name = str(g.auth_claims.get("fullName") or g.auth_claims.get("username") or "موظف").strip()
-    if not emp_id and g.auth_claims.get("role") == "admin":
-        emp_id = str(data.get("empId", "")).strip()[:100]
-        emp_name = str(data.get("empName", "موظف")).strip()[:120]
-    if not emp_id:
-        return jsonify({"success": False, "message": "حساب المستخدم غير مرتبط برقم موظف."}), 403
-    if os.environ.get("RAILWAY_ENVIRONMENT") and not RAILWAY_VOLUME_MOUNT_PATH:
-        app.logger.error("Punch storage is not durable: Railway Volume mount path is missing")
-        return jsonify({
-            "success": False,
-            "status": "PUNCH_STORAGE_UNAVAILABLE",
-            "message": "تسجيل البصمات متوقف مؤقتاً لحماية السجل؛ يلزم ربط وحدة تخزين دائمة بالخادم."
-        }), 503
-    punch_type = str(data.get("type", "in")).strip().lower()  # 'in' or 'out'
-    if punch_type not in ("in", "out"):
-        return jsonify({"success": False, "message": "نوع حركة الحضور غير صالح."}), 400
-    punch_title = "حضور" if punch_type == "in" else "انصراف"
+    return jsonify({
+        "success": False,
+        "message": "تم إيقاف تسجيل GPS. استخدم شاشة الحضور بالوجه أو التسجيل اليدوي المخوّل.",
+    }), 410
 
-    try:
-        user_lat = float(data.get("latitude"))
-        user_lon = float(data.get("longitude"))
-        accuracy = float(data.get("accuracy", 0))
-        if not (-90 <= user_lat <= 90 and -180 <= user_lon <= 180 and 0 <= accuracy <= 100000):
-            raise ValueError("Invalid location data")
-    except (TypeError, ValueError):
+
+@app.route("/api/attendance/face/enrollments", methods=["GET", "POST"])
+@require_firebase_auth(admin_only=True)
+def attendance_face_enrollments_api():
+    if request.method == "GET":
+        try:
+            return jsonify({"success": True, "enrollments": get_face_store().list_enrollments()})
+        except FaceSystemUnavailable as exc:
+            return jsonify({"success": False, "message": str(exc)}), 503
+        except Exception:
+            app.logger.exception("Failed to list face enrollments")
+            return jsonify({"success": False, "message": "تعذر تحميل تسجيلات الوجه."}), 500
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "message": "صيغة طلب تسجيل الوجه غير صالحة."}), 400
+    emp_id = str(data.get("empId") or "").strip()[:100]
+    if not emp_id or data.get("consentConfirmed") is not True:
         return jsonify({
             "success": False,
-            "status": "ERROR_INVALID_COORDS",
-            "message": "إحداثيات الموقع غير صحيحة أو مفقودة!"
+            "message": "اختر الموظف وأكد موافقته المستنيرة قبل تسجيل الوجه.",
         }), 400
-
-    cfg = load_geofence_config()
-    work_lat = float(cfg.get("latitude", 31.2001))
-    work_lon = float(cfg.get("longitude", 29.9187))
-    allowed_radius = float(cfg.get("radius_meters", 50.0))
-    is_enabled = bool(cfg.get("enabled", True))
-
-    distance = calculate_haversine_distance(work_lat, work_lon, user_lat, user_lon)
-    is_accepted = (distance <= allowed_radius) if is_enabled else True
-
-    now = datetime.datetime.now()
-    punch_record = {
-        "id": f"punch_{uuid.uuid4().hex}",
-        "empId": emp_id,
-        "empName": emp_name,
-        "type": punch_type,
-        "typeTitle": punch_title,
-        "latitude": round(user_lat, 6),
-        "longitude": round(user_lon, 6),
-        "accuracy": round(accuracy, 1),
-        "distance_meters": round(distance, 1),
-        "allowed_radius": allowed_radius,
-        "status": "ACCEPTED" if is_accepted else "REJECTED_OUT_OF_RANGE",
-        "date": now.strftime("%Y-%m-%d"),
-        "time": now.strftime("%H:%M:%S"),
-        "timestamp": now.isoformat()
-    }
+    storage_error = require_durable_attendance_storage()
+    if storage_error:
+        return storage_error
     try:
-        save_punch(punch_record)
-    except (OSError, TypeError, ValueError):
-        app.logger.exception("Failed to persist attendance punch")
-        return jsonify({"success": False, "message": "تعذر حفظ حركة البصمة. حاول مرة أخرى أو أبلغ مدير النظام."}), 500
+        employee = employee_records_by_id().get(emp_id)
+        if not employee:
+            return jsonify({"success": False, "message": "الموظف غير موجود في سجل الموظفين."}), 404
+        image_bytes = face_image_from_request(data)
+        result = get_face_store().enroll(
+            emp_id,
+            str(employee.get("name") or employee.get("fullName") or emp_id)[:120],
+            image_bytes,
+            str(g.auth_claims.get("username") or "admin")[:100],
+            FACE_MODEL_DIRECTORY,
+        )
+        return jsonify({"success": True, "enrollment": result})
+    except FaceAttendanceError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 422
+    except FaceSystemUnavailable as exc:
+        return jsonify({"success": False, "message": str(exc)}), 503
+    except Exception:
+        app.logger.exception("Face enrollment failed")
+        return jsonify({"success": False, "message": "تعذر تسجيل قالب الوجه. لم يتم تأكيد حفظه."}), 500
 
-    if is_accepted:
+
+@app.route("/api/attendance/face/enrollments/<emp_id>", methods=["DELETE"])
+@require_firebase_auth(admin_only=True)
+def attendance_face_enrollment_delete_api(emp_id):
+    try:
+        removed = get_face_store().remove_enrollment(str(emp_id)[:100])
+        if not removed:
+            return jsonify({"success": False, "message": "لا يوجد تسجيل وجه لهذا الموظف."}), 404
+        return jsonify({"success": True})
+    except FaceSystemUnavailable as exc:
+        return jsonify({"success": False, "message": str(exc)}), 503
+    except Exception:
+        app.logger.exception("Failed to delete face enrollment")
+        return jsonify({"success": False, "message": "تعذر حذف تسجيل الوجه."}), 500
+
+
+@app.route("/api/attendance/face/match", methods=["POST"])
+@require_firebase_auth()
+def attendance_face_match_api():
+    if not attendance_kiosk_allowed(g.auth_claims):
+        return jsonify({"success": False, "message": "تحتاج صلاحية تعديل شاشة الحضور لاستخدام الكاميرا."}), 403
+    storage_error = require_durable_attendance_storage()
+    if storage_error:
+        return storage_error
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "message": "صيغة طلب مطابقة الوجه غير صالحة."}), 400
+        image_bytes = face_image_from_request(data)
+        emp_id, stored_name, _ = get_face_store().match(image_bytes, FACE_MODEL_DIRECTORY)
+        employee = employee_records_by_id().get(emp_id)
+        if not employee:
+            return jsonify({
+                "success": False,
+                "message": "تعذر العثور على الموظف المرتبط بقالب الوجه. راجع مدير النظام.",
+            }), 409
+        emp_name = str(employee.get("name") or stored_name)[:120]
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        punch_type = next_attendance_punch_type(emp_id, today)
+        if punch_type is None:
+            return jsonify({
+                "success": False,
+                "message": "تم تسجيل الحضور والانصراف لهذا الموظف اليوم بالفعل.",
+            }), 409
+        challenge, expires_at = get_face_store().create_challenge(emp_id, emp_name, punch_type)
         return jsonify({
             "success": True,
-            "status": "ACCEPTED",
-            "distance_meters": round(distance, 1),
-            "allowed_radius": allowed_radius,
-            "message": f"تم تسجيل {punch_title} بنجاح! أنت داخل مقر العمل (المسافة: {round(distance, 1)} متر).",
-            "punch": punch_record
-        }), 200
-    else:
+            "challenge": challenge,
+            "expiresAt": expires_at,
+            "empId": emp_id,
+            "empName": emp_name,
+            "type": punch_type,
+            "typeTitle": "حضور" if punch_type == "in" else "انصراف",
+        })
+    except FaceAttendanceError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 422
+    except FaceSystemUnavailable as exc:
+        return jsonify({"success": False, "message": str(exc)}), 503
+    except Exception:
+        app.logger.exception("Face matching failed")
+        return jsonify({"success": False, "message": "تعذر إتمام مطابقة الوجه. لم يتم تسجيل حركة."}), 500
+
+
+@app.route("/api/attendance/face/punch", methods=["POST"])
+@require_firebase_auth()
+def attendance_face_punch_api():
+    if not attendance_kiosk_allowed(g.auth_claims):
+        return jsonify({"success": False, "message": "تحتاج صلاحية تعديل شاشة الحضور."}), 403
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "message": "صيغة طلب تأكيد الحركة غير صالحة."}), 400
+    try:
+        challenge = get_face_store().consume_challenge(data.get("challenge"))
+        if not challenge:
+            return jsonify({
+                "success": False,
+                "message": "انتهت صلاحية تأكيد الوجه أو سبق استخدامه. أعد المسح.",
+            }), 410
+        now_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        if next_attendance_punch_type(challenge["empId"], now_date) != challenge["type"]:
+            return jsonify({
+                "success": False,
+                "message": "تغير سجل الحضور منذ المطابقة. أعد مسح الوجه.",
+            }), 409
+        punch = build_attendance_punch(
+            challenge["empId"],
+            challenge["empName"],
+            challenge["type"],
+            "face_recognition",
+            g.auth_claims,
+        )
+        save_punch(punch)
+        return jsonify({"success": True, "message": f"تم تسجيل {punch['typeTitle']} بنجاح.", "punch": punch})
+    except DuplicateAttendancePunchError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 409
+    except FaceSystemUnavailable as exc:
+        return jsonify({"success": False, "message": str(exc)}), 503
+    except Exception:
+        app.logger.exception("Face attendance punch failed")
+        return jsonify({"success": False, "message": "تعذر حفظ الحركة. أعد المسح أو أبلغ مدير النظام."}), 500
+
+
+@app.route("/api/attendance/manual", methods=["POST"])
+@require_firebase_auth()
+def attendance_manual_api():
+    claims = g.auth_claims
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "message": "صيغة طلب التسجيل اليدوي غير صالحة."}), 400
+    emp_id = str(data.get("empId") or "").strip()[:100]
+    punch_type = str(data.get("type") or "").strip().lower()
+    reason = str(data.get("reason") or "").strip()[:500]
+    if not emp_id or punch_type not in ("in", "out") or len(reason) < 3:
         return jsonify({
             "success": False,
-            "status": "REJECTED_OUT_OF_RANGE",
-            "distance_meters": round(distance, 1),
-            "allowed_radius": allowed_radius,
-            "message": f"عذراً! تم رفض تسجيل {punch_title} لأنك خارج مقر العمل. المسافة الحالية: {round(distance, 1)} متر (الحد الأقصى المسموح به: {allowed_radius} متر فقط)."
-        }), 403
+            "message": "اختر الموظف ونوع الحركة واكتب سبباً واضحاً للتسجيل اليدوي.",
+        }), 400
+    storage_error = require_durable_attendance_storage()
+    if storage_error:
+        return storage_error
+    try:
+        employees = leaves_employee_records(get_firebase_admin()[1])
+        employee = next(
+            (entry for entry in employees if str(entry.get("id") or "") == emp_id),
+            None,
+        )
+        if not employee:
+            return jsonify({"success": False, "message": "الموظف غير موجود في سجل الموظفين."}), 404
+        if not leaves_can_manage_employee(claims, employee, employees, allow_self=False):
+            return jsonify({
+                "success": False,
+                "message": "التسجيل اليدوي متاح لمدير النظام أو المدير المباشر للموظف فقط.",
+            }), 403
+        punch = build_attendance_punch(
+            emp_id,
+            str(employee.get("name") or emp_id)[:120],
+            punch_type,
+            "manual_override",
+            claims,
+            reason,
+        )
+        save_punch(punch)
+        return jsonify({"success": True, "message": f"تم تسجيل {punch['typeTitle']} يدوياً.", "punch": punch})
+    except DuplicateAttendancePunchError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 409
+    except Exception:
+        app.logger.exception("Manual attendance punch failed")
+        return jsonify({"success": False, "message": "تعذر حفظ التسجيل اليدوي."}), 500
 
 
 @app.route("/api/attendance/punches", methods=["GET"])
@@ -1807,6 +2017,43 @@ def restore_punch_database_backup(path):
             "INSERT INTO imported_punch_sources (path) "
             "SELECT path FROM backup_snapshot.imported_punch_sources"
         )
+        connection.execute("DELETE FROM attendance_punch_guard")
+        restored_rows = connection.execute(
+            "SELECT emp_id, punch_date, payload FROM punches"
+        ).fetchall()
+        for emp_id, punch_date, payload in restored_rows:
+            punch = json.loads(payload)
+            if (
+                punch.get("source") in ("face_recognition", "manual_override")
+                and punch.get("status") in ("ACCEPTED", "MANUAL_ACCEPTED")
+            ):
+                connection.execute(
+                    "INSERT OR IGNORE INTO attendance_punch_guard "
+                    "(emp_id, punch_date, punch_type) VALUES (?, ?, ?)",
+                    (emp_id, punch_date, str(punch.get("type") or "")),
+                )
+
+        connection.execute("DELETE FROM face_challenges")
+        if "face_templates" in tables:
+            backup_face_columns = {
+                row[1] for row in connection.execute(
+                    "PRAGMA backup_snapshot.table_info(face_templates)"
+                ).fetchall()
+            }
+            required_face_columns = {
+                "emp_id", "employee_name", "nonce", "encrypted_template", "updated_at", "updated_by"
+            }
+            if required_face_columns.issubset(backup_face_columns):
+                consented_at_column = (
+                    "consented_at" if "consented_at" in backup_face_columns else "updated_at"
+                )
+                connection.execute("DELETE FROM face_templates")
+                connection.execute(
+                    "INSERT INTO face_templates "
+                    "(emp_id, employee_name, nonce, encrypted_template, updated_at, updated_by, consented_at) "
+                    f"SELECT emp_id, employee_name, nonce, encrypted_template, updated_at, updated_by, {consented_at_column} "
+                    "FROM backup_snapshot.face_templates"
+                )
         count = connection.execute("SELECT COUNT(*) FROM punches").fetchone()[0]
         connection.commit()
     return count

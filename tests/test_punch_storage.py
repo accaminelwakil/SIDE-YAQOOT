@@ -140,6 +140,60 @@ class PunchStorageTests(unittest.TestCase):
 
         self.assertEqual([item["id"] for item in server.load_punches()], ["keep-this"])
 
+    def test_attendance_backup_preserves_encrypted_face_templates_and_clears_challenges(self):
+        server.save_punch({
+            "id": "face-punch",
+            "empId": "1001",
+            "type": "in",
+            "source": "face_recognition",
+            "status": "ACCEPTED",
+            "date": "2026-02-10",
+            "timestamp": "2026-02-10T08:00:00"
+        })
+        with server.open_punch_database() as connection:
+            connection.execute(
+                "INSERT INTO face_templates "
+                "(emp_id, employee_name, nonce, encrypted_template, updated_at, updated_by, consented_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("1001", "Employee One", b"0123456789ab", b"encrypted-template", "2026-02-10", "admin", "2026-02-10")
+            )
+            connection.execute(
+                "INSERT INTO face_challenges "
+                "(token_hash, emp_id, employee_name, punch_type, expires_at) VALUES (?, ?, ?, ?, ?)",
+                ("temporary-token", "1001", "Employee One", "out", 2_000_000_000)
+            )
+
+        backup = os.path.join(self.temp_dir.name, "punch-backup.sqlite3")
+        server.write_punch_database_backup(backup)
+        with server.open_punch_database() as connection:
+            connection.execute("DELETE FROM face_templates")
+            connection.execute(
+                "INSERT INTO face_challenges "
+                "(token_hash, emp_id, employee_name, punch_type, expires_at) VALUES (?, ?, ?, ?, ?)",
+                ("stale-challenge", "1001", "Employee One", "out", 2_000_000_000)
+            )
+
+        server.restore_punch_database_backup(backup)
+        with server.open_punch_database() as connection:
+            template = connection.execute(
+                "SELECT encrypted_template FROM face_templates WHERE emp_id = ?",
+                ("1001",)
+            ).fetchone()
+            challenges = connection.execute("SELECT COUNT(*) FROM face_challenges").fetchone()[0]
+
+        self.assertEqual(template[0], b"encrypted-template")
+        self.assertEqual(challenges, 0)
+        with self.assertRaises(server.DuplicateAttendancePunchError):
+            server.save_punch({
+                "id": "duplicate-face-punch",
+                "empId": "1001",
+                "type": "in",
+                "source": "face_recognition",
+                "status": "ACCEPTED",
+                "date": "2026-02-10",
+                "timestamp": "2026-02-10T08:01:00"
+            })
+
 
 class EmployeeSelfServiceTests(unittest.TestCase):
     def test_employee_payload_contains_only_own_records_and_profile_fields(self):

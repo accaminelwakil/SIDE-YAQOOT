@@ -374,7 +374,6 @@
         if (currentUser.hasChangedPassword) {
             try {
                 await window.activateAuthenticatedFirebaseSession();
-                if (typeof window.loadGeofenceConfig === 'function') await window.loadGeofenceConfig();
             } catch (error) {
                 console.error('Post-login data synchronization failed:', error);
             }

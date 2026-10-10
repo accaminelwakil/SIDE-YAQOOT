@@ -99,10 +99,9 @@
         <nav class="nav-menu">
             <div class="nav-title">الشاشات والعمليات الأساسية</div>
 
-            <!-- زر البصمة الذكية بالموقع الجغرافي (GPS) -->
-            <button type="button" class="nav-item btn-smart-punch" onclick="openSmartPunchModal()" title="تسجيل الحضور والانصراف بالبصمة والموقع الجغرافي">
-                <span style="font-size:16px;">📍</span>
-                <span>بصمة الحضور الذكية (GPS)</span>
+            <button type="button" class="nav-item btn-smart-punch" onclick="openSmartPunchModal()" title="تسجيل الحضور والانصراف بالتعرف على الوجه">
+                <span style="font-size:16px;">📷</span>
+                <span>حضور وانصراف بالوجه</span>
             </button>
             
             <button class="nav-item active" id="nav-screen-welcome" onclick="switchScreen('screen-welcome', this)">
@@ -788,14 +787,14 @@
                     <button type="button" class="btn-secondary" onclick="addBlankAttendanceRow()" style="font-size:12px; padding:7px 12px;">
                         ➕ إضافة سطر إضافي
                     </button>
-                    <button type="button" class="btn-success" onclick="openSmartPunchModal()" style="font-size:12px; padding:7px 14px; font-weight:bold; background:linear-gradient(135deg, #059669, #10b981); color:#fff; border:none;" title="تسجيل بصمة موظف بالموقع الجغرافي">
-                        📍 بصمة الحضور الذكية (GPS)
+                    <button type="button" class="btn-success" onclick="openSmartPunchModal()" style="font-size:12px; padding:7px 14px; font-weight:bold; background:linear-gradient(135deg, #059669, #10b981); color:#fff; border:none;" title="التعرف على وجه الموظف لتسجيل الحركة">
+                        📷 تسجيل بالوجه
                     </button>
-                    <button type="button" class="btn-primary" onclick="openPunchesLogModal()" style="font-size:12px; padding:7px 14px; font-weight:bold;" title="عرض سجل كافة بصمات الموبايل الجغرافية ومسافات التسجيل">
-                        📱 سجل بصمات الموبايل
+                    <button type="button" class="btn-warning" onclick="openManualAttendanceModal()" style="font-size:12px; padding:7px 14px; font-weight:bold;" title="التسجيل اليدوي للمدير أو المسؤول المباشر عند تعذر التعرف">
+                        ✍️ تسجيل يدوي عند التعذر
                     </button>
-                    <button type="button" class="btn-secondary" onclick="openGeofenceSettingsModal()" style="font-size:12px; padding:7px 12px; font-weight:bold;" title="ضبط إحداثيات مقر العمل ونطاق السماح (50 متر)">
-                        ⚙️ إعدادات الموقع الجغرافي (50م)
+                    <button type="button" class="btn-primary" onclick="openPunchesLogModal()" style="font-size:12px; padding:7px 14px; font-weight:bold;" title="عرض حركات الحضور والوجه والتسجيلات اليدوية">
+                        📋 سجل حركات البصمة
                     </button>
                     <div id="att-present-count-box" style="display:inline-flex; align-items:center; gap:6px; background:#eff6ff; border:1.5px solid #3b82f6; border-radius:8px; padding:5px 12px; font-size:12px; font-weight:bold; color:#1e40af; box-shadow:0 1px 3px rgba(59,130,246,0.12);" title="عدد الموظفين المسجلين في اليومية الحالية">
                         <span>👥 عدد الحضور باليومية:</span>
@@ -1154,8 +1153,8 @@
                         <button type="button" id="btn-sarki-mode-manual" class="mode-toggle-btn active" onclick="setSingleSarkiSourceMode('manual')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من شاشة الحضور اليدوية">
                             📝 احتساب بناءً على التسجيل اليدوي
                         </button>
-                        <button type="button" id="btn-sarki-mode-punch" class="mode-toggle-btn" onclick="setSingleSarkiSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من بصمات GPS للموظف">
-                            📱 احتساب بناءً على التسجيل الذكي
+                        <button type="button" id="btn-sarki-mode-punch" class="mode-toggle-btn" onclick="setSingleSarkiSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب من سجل حركات الحضور">
+                            📷 احتساب بناءً على سجل الحركات
                         </button>
                     </div>
                 </div>
@@ -1398,20 +1397,6 @@
             <!-- رسالة تنبيه إذا لم يكن الحساب مرتبطاً بموظف -->
             <div id="emp-sarki-unlinked-warning" class="panel" style="display:none; background:#fef2f2; border:1.5px solid #ef4444; color:#991b1b; padding:16px; font-weight:bold; font-size:14px; text-align:center;">
                 ⚠️ هذا الحساب غير مرتبط بموظف في المنظومة حالياً. يرجى مراجعة إدارة النظام لربط كودك الوظيفي.
-            </div>
-
-            <!-- بطاقة تسجيل الحضور والانصراف بالبصمة للموظف مباشرة من صفحته -->
-            <div class="panel" style="margin-bottom:14px; padding:14px 18px; background:linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border:1.5px solid #86efac; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                <div style="display:flex; align-items:center; gap:12px;">
-                    <div style="font-size:28px; background:#dcfce7; width:52px; height:52px; border-radius:12px; display:flex; align-items:center; justify-content:center; border:1px solid #bbf7d0;">📍</div>
-                    <div>
-                        <div style="font-size:14px; font-weight:800; color:#14532d;">تسجيل بصمة الحضور والانصراف الذكية (GPS)</div>
-                        <div style="font-size:12px; color:#166534; margin-top:2px;">يمكنك تسجيل حضورك أو انصرافك الآن عبر التحقق من موقعك داخل نطاق مقر العمل (50 متر).</div>
-                    </div>
-                </div>
-                <button type="button" class="btn-success" onclick="openSmartPunchModal()" style="font-size:13px; font-weight:800; padding:10px 18px; border-radius:8px; box-shadow:0 3px 12px rgba(16,185,129,0.35);">
-                    📱 فتح نافذة تسجيل البصمة
-                </button>
             </div>
 
             <!-- شريط اختيار دورة الراتب وبطاقات التعريف -->
@@ -1979,8 +1964,8 @@
                             <button type="button" id="btn-bulk-mode-manual" class="mode-toggle-btn active" onclick="setBulkPayslipsSourceMode('manual')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب الساعات من شاشة الحضور اليدوية">
                                 📝 احتساب يدوي (الافتراضي)
                             </button>
-                            <button type="button" id="btn-bulk-mode-punch" class="mode-toggle-btn" onclick="setBulkPayslipsSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب الساعات من بصمات GPS للموظفين">
-                                📱 احتساب بالبصمة الذكية
+                            <button type="button" id="btn-bulk-mode-punch" class="mode-toggle-btn" onclick="setBulkPayslipsSourceMode('punch')" style="padding:6px 14px; font-size:12px; font-weight:bold; border-radius:6px;" title="احتساب الساعات من سجل حركات الحضور">
+                                📷 احتساب من سجل الحركات
                             </button>
                         </div>
                     </div>
@@ -2529,8 +2514,8 @@
         <section id="screen-punches-payroll" class="screen-view">
             <div class="content-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                 <div>
-                    <h1 style="margin:0; font-size:22px; font-weight:900;">📱 بصمة الموظفين الذكية ومراجعة واحتساب الرواتب</h1>
-                    <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:12.5px;">احتساب ساعات العمل الفعلية والإضافي والمرتبات مباشرة بناءً على بصمات GPS للموظفين</p>
+                    <h1 style="margin:0; font-size:22px; font-weight:900;">📷 سجل الحضور ومراجعة واحتساب الرواتب</h1>
+                    <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:12.5px;">احتساب ساعات العمل من حركات الوجه والتسجيل اليدوي المعتمد مع الاحتفاظ بالسجلات السابقة</p>
                 </div>
                 <div class="actions" style="display:flex; gap:8px; flex-wrap:wrap;">
                     <button type="button" class="btn-primary" onclick="commitPunchesPayrollToOfficial()" style="font-size:13px; padding:9px 15px;">
@@ -2558,13 +2543,13 @@
                     <div style="font-size:26px;">⚙️</div>
                     <div>
                         <div style="font-weight:800; font-size:14px; color:#102a45;">طريقة احتساب مسير الرواتب العامة للمنظومة:</div>
-                        <div id="payroll-mode-status-text" style="font-size:12px; color:#0369a1; font-weight:bold; margin-top:2px;">الوضع النشط: احتساب الرواتب بناءً على بصمة الموظفين الذكية (GPS)</div>
+                        <div id="payroll-mode-status-text" style="font-size:12px; color:#0369a1; font-weight:bold; margin-top:2px;">الوضع النشط: احتساب الرواتب بناءً على سجل حركات الحضور</div>
                     </div>
                 </div>
                 <div style="display:flex; gap:8px;">
                     <button type="button" id="btn-mode-punch-payroll" class="mode-toggle-btn active" onclick="switchPayrollCalculationMode('punch')" style="border:1.5px solid #0284c7; padding:9px 16px;">
                         <span>📱</span>
-                        <span>بصمة GPS الذكية</span>
+                        <span>سجل الحركات</span>
                     </button>
                     <button type="button" id="btn-mode-manual-payroll" class="mode-toggle-btn" onclick="switchPayrollCalculationMode('manual')" style="border:1.5px solid #94a3b8; padding:9px 16px;">
                         <span>⏱️</span>
@@ -2690,12 +2675,12 @@
                 <div class="kpi-card card-purple">
                     <h4>⏱️ ساعات يدوي بدون بصمة</h4>
                     <div class="val" style="color:var(--purple);" id="comp-kpi-excess-hours">0 س</div>
-                    <div class="sub-text">ساعات مدخلة يدوياً دون توثيق GPS</div>
+                    <div class="sub-text">ساعات مسجلة يدوياً دون حركة حضور</div>
                 </div>
                 <div class="kpi-card card-orange">
                     <h4>📝 سجلات يدوي بدون بصمة</h4>
                     <div class="val" style="color:#d97706;" id="comp-kpi-manual-only">0</div>
-                    <div class="sub-text">شيفتات مسجلة دفترياً دون بصمة GPS</div>
+                    <div class="sub-text">شيفتات مسجلة دفترياً دون حركة حضور</div>
                 </div>
             </div>
 
@@ -2740,7 +2725,7 @@
                     <thead>
                         <tr style="background:#ffffff; color:#1e293b; position:sticky; top:0; z-index:2; border-bottom:1px solid #cbd5e1;">
                             <th colspan="3" style="background:#ffffff; color:#1e293b; padding:8px; border:1px solid #e2e8f0; font-weight:800;">بيانات الموظف والشيفت</th>
-                            <th colspan="3" style="background:#ffffff; color:#047857; padding:8px; border:1px solid #e2e8f0; font-weight:800;">📱 بيانات بصمة الموبايل الذكية (GPS)</th>
+                            <th colspan="3" style="background:#ffffff; color:#047857; padding:8px; border:1px solid #e2e8f0; font-weight:800;">📋 بيانات سجل الحركات</th>
                             <th colspan="3" style="background:#ffffff; color:#1d4ed8; padding:8px; border:1px solid #e2e8f0; font-weight:800;">⏱️ بيانات الإدخال اليدوي المعتمد</th>
                             <th colspan="3" style="background:#ffffff; color:#831843; padding:8px; border:1px solid #e2e8f0; font-weight:800;">⚖️ نتائج التدقيق والفرق</th>
                         </tr>
@@ -2748,9 +2733,9 @@
                             <th style="padding:8px 6px; background:#ffffff; color:#1e293b; border:1px solid #e2e8f0; font-weight:700;">التاريخ</th>
                             <th style="padding:8px 6px; text-align:right; background:#ffffff; color:#1e293b; border:1px solid #e2e8f0; font-weight:700;">الموظف</th>
                             <th style="padding:8px 6px; background:#ffffff; color:#1e293b; border:1px solid #e2e8f0; font-weight:700;">القسم</th>
-                            <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور GPS</th>
-                            <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف GPS</th>
-                            <th style="padding:8px 6px; color:#047857; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات GPS</th>
+                            <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور مسجل</th>
+                            <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف مسجل</th>
+                            <th style="padding:8px 6px; color:#047857; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات مسجلة</th>
                             <th style="padding:8px 6px; color:#1d4ed8; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور يدوي</th>
                             <th style="padding:8px 6px; color:#1d4ed8; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف يدوي</th>
                             <th style="padding:8px 6px; color:#1d4ed8; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات يدوي</th>
@@ -3175,168 +3160,89 @@
 <!-- نافذة التنبيه والإشعار السريع (Toast Notification) -->
 <div id="system-toast" class="toast-box"></div>
 
-<!-- نافذة تسجيل البصمة الذكية والتحقق الجغرافي (Geofencing Modal) -->
+<!-- نافذة الحضور والانصراف بالتعرف على الوجه -->
 <div id="modal-smart-punch" class="custom-modal-backdrop" style="display:none;" onclick="if(event.target===this) closeSmartPunchModal()">
-    <div class="custom-modal-box" style="max-width:440px; width:95%; border-radius:16px; overflow:hidden; border:2px solid #10b981; box-shadow:0 12px 40px rgba(16,185,129,0.25);">
-        <div class="modal-header" style="background:linear-gradient(135deg, #065f46 0%, #059669 100%); color:#fff; padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
-            <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:20px;">📍</span>
-                <h3 style="margin:0; font-size:16px; font-weight:800;">بصمة الحضور الذكية (GPS)</h3>
-            </div>
-            <button type="button" onclick="closeSmartPunchModal()" style="background:transparent; border:none; color:#fff; font-size:18px; cursor:pointer; font-weight:bold;">✕</button>
+    <div class="custom-modal-box" style="max-width:560px; width:95%; max-height:92vh; overflow:auto; border-radius:16px; border:2px solid #10b981;">
+        <div class="modal-header" style="background:linear-gradient(135deg, #065f46, #059669); color:#fff; padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0; font-size:16px;">📷 الحضور والانصراف بالتعرف على الوجه</h3>
+            <button type="button" onclick="closeSmartPunchModal()" style="background:transparent; border:0; color:#fff; font-size:20px;">✕</button>
         </div>
-
         <div style="padding:18px;">
-            <!-- ساعة رقمية حية -->
             <div class="punch-clock-display">
-                <div class="punch-clock-time" id="smart-punch-live-clock">--:--:--</div>
-                <div class="punch-clock-date" id="smart-punch-live-date">...</div>
+                <div class="punch-clock-time" id="face-punch-live-clock">--:--:--</div>
+                <div class="punch-clock-date" id="face-punch-live-date">...</div>
             </div>
-
-            <!-- معلومات الموظف -->
-            <div class="punch-user-strip">
-                <div>
-                    <span style="color:#64748b; font-size:11px; display:block;">الموظف الحالي</span>
-                    <strong id="smart-punch-emp-name" style="color:#0f172a; font-size:13.5px;">-</strong>
-                </div>
-                <div style="text-align:center;">
-                    <span style="color:#64748b; font-size:11px; display:block;">الكود الوظيفي</span>
-                    <span id="smart-punch-emp-code" style="font-family:Consolas, monospace; font-weight:bold; color:var(--accent);">-</span>
-                </div>
-                <div style="text-align:left;">
-                    <span style="color:#64748b; font-size:11px; display:block;">القسم</span>
-                    <span id="smart-punch-emp-dept" style="color:#0f172a; font-weight:600;">-</span>
+            <p style="font-size:12px; color:#475569; text-align:center;">قف بمفردك أمام الكاميرا، ثم اضغط «التعرف على الوجه». راجع الاسم والحركة قبل التأكيد.</p>
+            <video id="face-attendance-video" autoplay playsinline muted style="display:block; width:100%; max-height:320px; background:#0f172a; border-radius:12px; object-fit:cover;"></video>
+            <div id="face-punch-status" role="status" aria-live="polite" style="margin:12px 0; padding:10px; background:#f8fafc; border-radius:8px; text-align:center;">يتم تشغيل الكاميرا...</div>
+            <button type="button" id="face-punch-scan-btn" class="btn-success" onclick="submitSmartAttendancePunch()" style="width:100%; justify-content:center; padding:12px;">🔍 التعرف على الوجه</button>
+            <div id="face-punch-confirmation" style="display:none; margin-top:14px; padding:14px; background:#ecfdf5; border:1px solid #6ee7b7; border-radius:10px;">
+                <div style="font-weight:800; text-align:center;">تأكيد الحركة</div>
+                <p style="text-align:center;">الموظف: <strong id="face-punch-confirm-name"></strong><br>الحركة: <strong id="face-punch-confirm-type"></strong></p>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" id="face-punch-confirm-btn" class="btn-success" onclick="confirmFaceAttendancePunch()" style="flex:1; justify-content:center;">تأكيد التسجيل</button>
+                    <button type="button" class="btn-secondary" onclick="retryFaceAttendance()">إلغاء وإعادة المسح</button>
                 </div>
             </div>
-
-            <!-- اختيار نوع البصمة: حضور أو انصراف -->
-            <div class="punch-type-toggle">
-                <input type="radio" name="smart-punch-type" id="smart-punch-type-in" value="in" checked>
-                <label for="smart-punch-type-in" class="toggle-label-in">
-                    <span>🟢</span>
-                    <span>تسجيل حضور (Check-In)</span>
+            <div style="display:flex; gap:8px; margin-top:12px;">
+                <button type="button" class="btn-warning" onclick="openManualAttendanceModal()" style="flex:1; justify-content:center;">✍️ تعذر التعرف؟ تسجيل يدوي</button>
+                <button type="button" class="btn-secondary" onclick="closeSmartPunchModal()">إغلاق</button>
+            </div>
+            <p style="font-size:11px; color:#64748b; line-height:1.6; margin:12px 0 0;">
+                تُرسل صورة مؤقتة إلى الخادم للمطابقة ولا تُحفظ؛ القوالب مشفّرة. التحقق بالوجه لا يضمن كشف الصور أو الانتحال، ولذلك يراجع الموظف الحركة ويُتاح التسجيل اليدوي للمخوّل.
+            </p>
+            <section id="face-enrollment-admin" style="display:none; margin-top:18px; padding-top:14px; border-top:1px solid #cbd5e1;">
+                <h4 style="margin:0 0 8px;">إدارة تسجيلات الوجه (مدير النظام)</h4>
+                <label for="face-enroll-employee">الموظف</label>
+                <select id="face-enroll-employee" style="width:100%; margin:6px 0 10px;"></select>
+                <label style="display:flex; gap:8px; align-items:flex-start; font-size:12px;">
+                    <input type="checkbox" id="face-enrollment-consent">
+                    <span>أؤكد أن الموظف أُبلغ بمقارنة الوجه وتخزين قالب مشفّر، ووافق على التسجيل.</span>
                 </label>
-
-                <input type="radio" name="smart-punch-type" id="smart-punch-type-out" value="out">
-                <label for="smart-punch-type-out" class="toggle-label-out">
-                    <span>🔴</span>
-                    <span>تسجيل انصراف (Check-Out)</span>
-                </label>
-            </div>
-
-            <!-- رادار وتحديد الموقع الجغرافي -->
-            <div class="punch-radar-container">
-                <div class="punch-radar-circle" id="smart-punch-radar">
-                    <span class="punch-radar-icon">📡</span>
-                </div>
-                <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569; margin-top:2px;">
-                    <span>المسافة الحالية من المقر:</span>
-                    <strong id="smart-punch-distance-val" style="color:#059669; font-size:14px; font-family:Consolas, monospace;">جاري القياس...</strong>
-                </div>
-            </div>
-
-            <!-- صندوق حالة التحقق من الموقع -->
-            <div id="smart-punch-status-box" class="punch-status-box status-locating">
-                <span>جاري قراءة إحداثيات GPS بدقة من هاتفك... 🛰️</span>
-            </div>
-
-            <!-- زر التأكيد والتسجيل -->
-            <button type="button" id="smart-punch-submit-btn" class="btn-punch-main btn-punch-disabled" disabled onclick="submitSmartAttendancePunch()">
-                <span>📍</span>
-                <span>تأكيد وتسجيل البصمة الآن</span>
-            </button>
-
-            <!-- زر إعادة تحديث الموقع -->
-            <div style="text-align:center; margin-top:10px;">
-                <button type="button" onclick="refreshSmartPunchGps()" style="background:none; border:none; color:#2563eb; font-size:12px; font-weight:bold; cursor:pointer; text-decoration:underline;">
-                    🔄 إعادة قراءة إحداثيات الـ GPS وتحديث المسافة
-                </button>
-            </div>
+                <button type="button" id="face-enrollment-submit" class="btn-primary" onclick="submitFaceEnrollment()" style="margin-top:10px;">📸 تسجيل أو تحديث الوجه</button>
+                <div id="face-enrollment-status" role="status" style="margin-top:6px; font-size:12px;"></div>
+                <div id="face-enrollment-list" style="font-size:12px; margin-top:10px;"></div>
+            </section>
         </div>
     </div>
 </div>
 
-<!-- نافذة ضبط إحداثيات ونطاق مقر العمل (Geofencing Settings Modal) -->
-<div id="modal-geofence-settings" class="custom-modal-backdrop" style="display:none;" onclick="if(event.target===this) closeGeofenceSettingsModal()">
-    <div class="custom-modal-box" style="max-width:480px; width:95%; border-radius:14px; overflow:hidden;">
-        <div class="modal-header" style="background:#1e293b; color:#fff; padding:14px 18px; display:flex; justify-content:space-between; align-items:center;">
-            <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:18px;">⚙️</span>
-                <h3 style="margin:0; font-size:15px; font-weight:bold;">إعدادات الموقع الجغرافي لمقر العمل (Geofencing)</h3>
-            </div>
-            <button type="button" onclick="closeGeofenceSettingsModal()" style="background:transparent; border:none; color:#fff; font-size:18px; cursor:pointer;">✕</button>
+<div id="modal-attendance-manual" class="custom-modal-backdrop" style="display:none;" onclick="if(event.target===this) closeManualAttendanceModal()">
+    <div class="custom-modal-box" style="max-width:440px; width:95%; padding:18px; border-radius:14px;">
+        <h3 style="margin-top:0;">✍️ تسجيل حركة يدوياً</h3>
+        <p style="font-size:12px; color:#64748b;">متاح لمدير النظام أو المدير المباشر. سيُسجل اسم المعتمد والسبب في سجل المراجعة.</p>
+        <label for="manual-attendance-employee">الموظف</label>
+        <select id="manual-attendance-employee" style="width:100%; margin:6px 0 12px;"></select>
+        <label for="manual-attendance-type">نوع الحركة</label>
+        <select id="manual-attendance-type" style="width:100%; margin:6px 0 12px;">
+            <option value="in">حضور</option>
+            <option value="out">انصراف</option>
+        </select>
+        <label for="manual-attendance-reason">سبب التسجيل اليدوي</label>
+        <textarea id="manual-attendance-reason" maxlength="500" rows="3" style="width:100%; margin:6px 0 10px;" placeholder="مثال: تعذر التعرف على الوجه بسبب إصابة مؤقتة"></textarea>
+        <div id="manual-attendance-status" role="status" style="font-size:12px; margin-bottom:8px;"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button type="button" class="btn-secondary" onclick="closeManualAttendanceModal()">إغلاق</button>
+            <button type="button" id="manual-attendance-submit" class="btn-warning" onclick="submitManualAttendance()">حفظ التسجيل اليدوي</button>
         </div>
-
-        <form onsubmit="handleSaveGeofenceSettings(event)" style="padding:18px;">
-            <div class="field" style="margin-bottom:12px;">
-                <label style="font-weight:bold; color:var(--text-main); font-size:13px;">🏢 اسم مقر العمل</label>
-                <input type="text" id="geo-setting-name" placeholder="مثال: مقر عيادات سيدي ياقوت التخصصية" style="width:100%;">
-            </div>
-
-            <div style="display:flex; gap:10px; margin-bottom:12px;">
-                <div class="field" style="flex:1;">
-                    <label style="font-weight:bold; color:var(--accent); font-size:12.5px;">🌐 خط العرض (Latitude)</label>
-                    <input type="number" step="any" id="geo-setting-lat" required style="width:100%; font-family:Consolas, monospace; font-weight:bold;">
-                </div>
-                <div class="field" style="flex:1;">
-                    <label style="font-weight:bold; color:var(--accent); font-size:12.5px;">🌐 خط الطول (Longitude)</label>
-                    <input type="number" step="any" id="geo-setting-lon" required style="width:100%; font-family:Consolas, monospace; font-weight:bold;">
-                </div>
-            </div>
-
-            <div class="field" style="margin-bottom:14px;">
-                <label style="font-weight:bold; color:#059669; font-size:13px;">📏 نطاق البصمة المسموح به بالمتر (Radius Meters) *</label>
-                <input type="number" id="geo-setting-radius" value="50" min="10" max="5000" required style="width:100%; font-family:Consolas, monospace; font-weight:bold; font-size:14px;">
-                <span style="font-size:11px; color:#64748b; margin-top:3px; display:block;">المسافة القصوى التي يُسمح للموظف بتسجيل الحضور من خلالها (الافتراضي: 50 متر).</span>
-            </div>
-
-            <!-- زر ذكي لالتقاط موقع المدير الحالي الآن بضغطة واحدة -->
-            <div style="background:#eff6ff; border:1px dashed #3b82f6; border-radius:8px; padding:10px 12px; margin-bottom:14px; text-align:center;">
-                <div style="font-size:12px; color:#1e40af; margin-bottom:8px; font-weight:600;">
-                    هل أنت متواجد الآن في مقر العمل؟ يمكنك تعيين الإحداثيات فورياً من موقع هاتفك الحالي:
-                </div>
-                <button type="button" id="btn-capture-workplace-gps" class="btn-primary" onclick="captureManagerCurrentLocationForWorkplace()" style="font-size:12px; padding:7px 14px; font-weight:bold;">
-                    📍 التقاط إحداثيات موقعي الحالي الآن (GPS)
-                </button>
-            </div>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#f8fafc; padding:10px 14px; border-radius:8px; border:1px solid #e2e8f0;">
-                <label for="geo-setting-enabled" style="font-size:13px; font-weight:bold; cursor:pointer; color:#1e293b;">
-                    🛡️ تفعيل فحص النطاق الجغرافي عند البصمة
-                </label>
-                <input type="checkbox" id="geo-setting-enabled" checked style="width:18px; height:18px; cursor:pointer; accent-color:#059669;">
-            </div>
-
-            <div style="display:flex; gap:8px; justify-content:flex-end;">
-                <button type="button" class="btn-secondary" onclick="openWorkplaceInGoogleMaps()" style="font-size:12.5px;">
-                    🗺️ معاينة على الخريطة
-                </button>
-                <button type="button" class="btn-secondary" onclick="closeGeofenceSettingsModal()" style="font-size:12.5px;">
-                    إلغاء
-                </button>
-                <button type="submit" class="btn-success" style="font-size:12.5px; font-weight:bold; padding:8px 16px;">
-                    💾 حفظ الإعدادات
-                </button>
-            </div>
-        </form>
     </div>
 </div>
 
-<!-- نافذة سجل بصمات الموبايل الجغرافية للموظفين (Punches Log Modal) -->
+<!-- سجل حركات الحضور -->
 <div id="modal-punches-log" class="custom-modal-backdrop" style="display:none; position:fixed; inset:0; width:100vw; height:100vh; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); z-index:99999; align-items:center; justify-content:center; padding:16px; box-sizing:border-box;" onclick="if(event.target===this) closePunchesLogModal()">
     <div class="custom-modal-box" style="max-width:920px; width:95%; max-height:90vh; background:#ffffff; border-radius:14px; border:1px solid #cbd5e1; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); display:flex; flex-direction:column; overflow:hidden; margin:auto;">
         <!-- الصف العلوي للنافذة (رمادي فاتح) -->
         <div class="modal-header" style="background:#f1f5f9; color:#1e293b; padding:12px 18px; display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #cbd5e1;">
             <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:18px;">📱</span>
-                <h3 style="margin:0; font-size:15px; font-weight:800; color:#1e293b;">سجل بصمات الموبايل الجغرافية ومسافات التسجيل (GPS Punches)</h3>
+                <span style="font-size:18px;">📋</span>
+                <h3 style="margin:0; font-size:15px; font-weight:800; color:#1e293b;">سجل حركات الحضور بالوجه والتسجيل اليدوي</h3>
             </div>
             <button type="button" onclick="closePunchesLogModal()" style="background:#e2e8f0; border:1px solid #cbd5e1; color:#475569; font-size:14px; font-weight:bold; width:28px; height:28px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;" title="إغلاق">✕</button>
         </div>
 
         <div style="padding:16px; display:flex; flex-direction:column; overflow:hidden; flex:1;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
-                <span style="font-size:12.5px; color:#64748b;">يعرض آخر البصمات الواردة من هواتف الموظفين بالموقع الجغرافي والمسافة وحالة القبول أو الرفض:</span>
+                <span style="font-size:12.5px; color:#64748b;">يشمل الحركات الجديدة والقديمة؛ الحركات اليدوية تعرض المسؤول الذي سجّلها.</span>
                 <button type="button" class="btn-secondary" onclick="openPunchesLogModal()" style="font-size:11.5px; padding:5px 12px; background:#f8fafc; border:1px solid #cbd5e1; color:#1e293b; border-radius:6px; font-weight:700;">
                     🔄 تحديث السجل
                 </button>
@@ -3351,19 +3257,18 @@
                             <th style="padding:10px 10px; text-align:right; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">الموظف</th>
                             <th style="padding:10px 8px; text-align:center; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">النوع</th>
                             <th style="padding:10px 8px; text-align:center; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">الوقت والتاريخ</th>
-                            <th style="padding:10px 8px; text-align:center; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">المسافة من المقر</th>
-                            <th style="padding:10px 8px; text-align:center; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">الحالة</th>
-                            <th style="padding:10px 8px; text-align:center; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">الخريطة</th>
+                            <th style="padding:10px 8px; text-align:center; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">طريقة التسجيل</th>
+                            <th style="padding:10px 8px; text-align:center; background:#f1f5f9; color:#475569; font-weight:800; border-bottom:1.5px solid #cbd5e1;">المسؤول</th>
                         </tr>
                     </thead>
                     <tbody id="punches-log-tbody">
-                        <tr><td colspan="7" style="text-align:center; padding:20px; color:#64748b;">لا توجد بيانات</td></tr>
+                        <tr><td colspan="6" style="text-align:center; padding:20px; color:#64748b;">لا توجد بيانات</td></tr>
                     </tbody>
                     <!-- الصفوف الأخيرة للجدول (رمادي فاتح) -->
                     <tfoot>
                         <tr style="background:#f1f5f9; border-top:1.5px solid #cbd5e1; color:#64748b; font-size:11.5px;">
-                            <td colspan="7" style="padding:7px 12px; text-align:center; background:#f1f5f9; color:#64748b;">
-                                📍 مسافات البصمة يتم احتسابها بدقة عبر مستشعرات GPS لهواتف الموظفين مقارنة بنطاق العيادات
+                            <td colspan="6" style="padding:7px 12px; text-align:center; background:#f1f5f9; color:#64748b;">
+                                صور الوجه لا تُحفظ؛ قوالب الوجه مشفّرة. تبقى الحركات القديمة محفوظة للرجوع إليها.
                             </td>
                         </tr>
                     </tfoot>
@@ -3411,7 +3316,7 @@
     <script src="js/utils/excel-helpers.js"></script>
     <script src="js/utils/quick-tools.js"></script>
     <script src="js/utils/autocomplete.js"></script>
-    <script src="js/utils/geofence-service.js"></script>
+    <script src="js/utils/face-attendance-service.js"></script>
     <script src="js/utils/a4-scale-helper.js"></script>
     <script src="js/utils/notification-service.js"></script>
 
@@ -3459,7 +3364,7 @@
                     window.location.reload();
                 });
                 window.addEventListener('load', function() {
-                    navigator.serviceWorker.register('./sw.js?v=9', {
+                    navigator.serviceWorker.register('./sw.js?v=10', {
                         scope: './',
                         updateViaCache: 'none'
                     })

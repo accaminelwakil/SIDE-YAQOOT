@@ -3,7 +3,7 @@
 // PWA & TWA Full Offline Support & PWABuilder Optimized
 // ====================================================================
 
-const CACHE_NAME = 'sidi-yaqoot-v12';
+const CACHE_NAME = 'sidi-yaqoot-v13';
 
 const CORE_FILES = [
     '/',
@@ -35,7 +35,7 @@ const CORE_FILES = [
     '/js/utils/excel-helpers.js',
     '/js/utils/quick-tools.js',
     '/js/utils/autocomplete.js',
-    '/js/utils/geofence-service.js',
+    '/js/utils/face-attendance-service.js',
     '/js/app-state.js',
     '/js/app.js',
     '/js/config/firebase-sample-config.js',

@@ -179,7 +179,8 @@
                 const empPunches = currentPunchesList.filter(p => {
                     if (String(p.empId) !== String(emp.id) && p.empName !== emp.name) return false;
                     const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
-                    return pDate >= startDate && pDate <= endDate && (p.status === 'ACCEPTED' || !p.status);
+                    return pDate >= startDate && pDate <= endDate &&
+                        (p.status === 'ACCEPTED' || p.status === 'MANUAL_ACCEPTED' || !p.status);
                 });
 
                 // تجميع الحركات باليوم لحساب الساعات
@@ -383,7 +384,7 @@
                 btnManual.style.background = '#ffffff';
                 btnManual.style.color = '#1e293b';
                 if (bannerText) {
-                    bannerText.innerHTML = `🌟 النظام يعتمد حالياً: <strong>[ بصمة الموظف الذكية (GPS) ]</strong> لاحتساب الساعات والرواتب في السراكي والمسير.`;
+                    bannerText.innerHTML = `🌟 النظام يعتمد حالياً: <strong>[ سجل حركات الحضور ]</strong> لاحتساب الساعات والرواتب في السراكي والمسير.`;
                     bannerText.parentElement.style.borderColor = '#059669';
                     bannerText.parentElement.style.background = '#f0fdf4';
                 }
@@ -415,7 +416,8 @@
         // تجميع كل بصمات الفترة
         const cyclePunches = currentPunchesList.filter(p => {
             const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
-            return pDate >= startDate && pDate <= endDate && (p.status === 'ACCEPTED' || !p.status);
+            return pDate >= startDate && pDate <= endDate &&
+                (p.status === 'ACCEPTED' || p.status === 'MANUAL_ACCEPTED' || !p.status);
         });
 
         // دمجها في attendanceRecords
@@ -469,7 +471,7 @@
                         wage: Math.round(basicH * rates.hourlyRate * 100) / 100,
                         isHoliday: false,
                         isPaid: false,
-                        source: 'gps_punch'
+                        source: 'attendance_punch'
                     });
                     transferredCount++;
                 }
@@ -574,7 +576,7 @@
             <body>
                 <div class="header-box">
                     <div>
-                        <h2 style="margin:0; color:#102a45;">كشف مراجعة رواتب الموظفين بناءً على البصمة الذكية (GPS)</h2>
+                        <h2 style="margin:0; color:#102a45;">كشف مراجعة رواتب الموظفين بناءً على سجل الحركات</h2>
                         <div style="font-size:12px; color:#990012; font-weight:bold;">${cycleText}</div>
                     </div>
                     <div style="font-size:11px;">تاريخ الطباعة: ${new Date().toLocaleDateString('ar-EG')}</div>

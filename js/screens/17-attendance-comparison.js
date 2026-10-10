@@ -119,7 +119,7 @@
         const specificDate = document.getElementById('comp-specific-date') ? document.getElementById('comp-specific-date').value : '';
         const sourceFilter = document.getElementById('comp-source-filter') ? document.getElementById('comp-source-filter').value : '';
 
-        // 1. جلب بصمات الـ GPS
+        // 1. جلب الحركات المسجلة
         let punches = [];
         try {
             const resp = await window.authenticatedFetch('/api/attendance/punches');
@@ -184,7 +184,8 @@
                     if (!matchId && !matchName) return false;
 
                     const pDate = p.date || (p.timestamp ? p.timestamp.split('T')[0] : '');
-                    return pDate === dateVal && (p.status === 'ACCEPTED' || !p.status);
+                    return pDate === dateVal &&
+                        (p.status === 'ACCEPTED' || p.status === 'MANUAL_ACCEPTED' || !p.status);
                 }).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 
                 // إذا لم يكن هناك بصمات ولا حضور يدوي لهذا الموظف في هذا اليوم، نتخطاه
@@ -233,8 +234,8 @@
                 // 2. تسجيل بصمة
                 if (empPunches.length > 0 && (!sourceFilter || sourceFilter === 'punch')) {
                     const punchStatusText = punchCalc && !punchCalc.valid 
-                        ? `⚠️ بصمة ناقصة: ${punchCalc.issue}` 
-                        : (isHolidayDay ? '🎉 إجازة رسمية (بصمة)' : 'بصمة موثقة GPS ✅');
+                        ? `⚠️ حركة ناقصة: ${punchCalc.issue}`
+                        : (isHolidayDay ? '🎉 إجازة رسمية (حركة مسجلة)' : 'حركة حضور موثقة ✅');
 
                     reportRows.push({
                         empId: emp.id,
@@ -395,7 +396,7 @@
             table.querySelector('thead').innerHTML = `
                 <tr style="background:#ffffff; color:#1e293b; position:sticky; top:0; z-index:2; border-bottom:1px solid #cbd5e1;">
                     <th colspan="3" style="background:#ffffff; color:#1e293b; padding:8px; font-weight:800; border:1px solid #e2e8f0;">بيانات الموظف والشيفت</th>
-                    <th colspan="3" style="background:#ffffff; color:#047857; padding:8px; font-weight:800; border:1px solid #e2e8f0;">📱 بيانات بصمة الموبايل الذكية (GPS)</th>
+                    <th colspan="3" style="background:#ffffff; color:#047857; padding:8px; font-weight:800; border:1px solid #e2e8f0;">📋 بيانات سجل الحركات</th>
                     <th colspan="3" style="background:#ffffff; color:#1d4ed8; padding:8px; font-weight:800; border:1px solid #e2e8f0;">⏱️ بيانات الإدخال اليدوي المعتمد</th>
                     <th colspan="2" style="background:#ffffff; color:#831843; padding:8px; font-weight:800; border:1px solid #e2e8f0;">⚖️ نتائج التدقيق والفرق</th>
                 </tr>
@@ -403,9 +404,9 @@
                     <th style="padding:8px 6px; background:#ffffff; color:#1e293b; font-weight:700; border:1px solid #e2e8f0;">التاريخ</th>
                     <th style="padding:8px 6px; text-align:right; background:#ffffff; color:#1e293b; font-weight:700; border:1px solid #e2e8f0;">الموظف</th>
                     <th style="padding:8px 6px; background:#ffffff; color:#1e293b; font-weight:700; border:1px solid #e2e8f0;">القسم</th>
-                    <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور GPS</th>
-                    <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف GPS</th>
-                    <th style="padding:8px 6px; color:#047857; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات GPS</th>
+                    <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور مسجل</th>
+                    <th style="padding:8px 6px; color:#047857; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف مسجل</th>
+                    <th style="padding:8px 6px; color:#047857; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات مسجلة</th>
                     <th style="padding:8px 6px; color:#1d4ed8; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">حضور يدوي</th>
                     <th style="padding:8px 6px; color:#1d4ed8; background:#ffffff; border:1px solid #e2e8f0; font-weight:700;">انصراف يدوي</th>
                     <th style="padding:8px 6px; color:#1d4ed8; font-weight:bold; background:#ffffff; border:1px solid #e2e8f0;">ساعات يدوي</th>
