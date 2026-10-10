@@ -293,6 +293,12 @@ let leavesManagedEmployees = [];
         const isManager = isUserManager(user);
         const advanceButton = document.getElementById('btn-request-advance');
         if (advanceButton) advanceButton.style.display = user.empId ? 'inline-flex' : 'none';
+        const advanceAccessHint = document.getElementById('salary-advances-access-hint');
+        if (advanceAccessHint) {
+            advanceAccessHint.textContent = user.empId
+                ? 'يمكنك تقديم طلب سلفة من الزر أعلى الشاشة، ومتابعة حالة الطلب وجدول الأقساط هنا.'
+                : 'لتقديم طلب سلفة، سجّل الدخول بحساب الموظف المرتبط بسجل الموظف؛ سيظهر زر «طلب سلفة» بجانب زري طلب الإجازة والإذن.';
+        }
         if (user.username && loadedAdvancesUsername !== String(user.username) && !loadingAdvancesRequest) {
             loadSalaryAdvances().catch(error => console.error('Failed to load salary advances:', error));
         } else if (loadedAdvancesUsername === String(user.username)) {
