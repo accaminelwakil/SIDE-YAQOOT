@@ -2970,9 +2970,6 @@
             <button type="submit" class="btn-primary" style="width:100%; justify-content:center; font-size:14px; padding:12px; border-radius:10px; font-weight:700;">
                 🔓 تسجيل الدخول وفتح المنظومة
             </button>
-            <button type="button" class="btn-secondary" onclick="fixFirebaseApiKey()" style="width:100%; justify-content:center; margin-top:10px; font-size:12px;">
-                ⚙️ إصلاح مفتاح ربط Firebase
-            </button>
         </form>
     </div>
 </div>
@@ -3390,12 +3387,6 @@
     <script>
         (function() {
             if ('serviceWorker' in navigator) {
-                let refreshingForServiceWorkerUpdate = false;
-                navigator.serviceWorker.addEventListener('controllerchange', function() {
-                    if (refreshingForServiceWorkerUpdate) return;
-                    refreshingForServiceWorkerUpdate = true;
-                    window.location.reload();
-                });
                 window.addEventListener('load', function() {
                     navigator.serviceWorker.register('./sw.js?v=10', {
                         scope: './',

@@ -313,7 +313,7 @@
             currentFirebaseConfig.apiKey = defaultConfig.apiKey;
         }
         if (!currentFirebaseConfig.apiKey) {
-            throw new Error('مفتاح Firebase غير مضبوط. استخدم زر إصلاح مفتاح Firebase أسفل تسجيل الدخول.');
+            throw new Error('مفتاح Firebase غير مضبوط. تحقق من إعدادات الربط أو تواصل مع مدير النظام.');
         }
 
         let existingApp = firebaseAppInstance;
@@ -348,7 +348,7 @@
             await auth.signInWithCustomToken(result.token);
         } catch (error) {
             if (String(error.code || '') === 'auth/api-key-not-valid') {
-                throw new Error('Firebase رفض مفتاح Web API الثابت. استخدم زر «إصلاح مفتاح Firebase» أسفل تسجيل الدخول مرة واحدة.');
+                throw new Error('Firebase رفض مفتاح Web API. تواصل مع مدير النظام للتحقق من إعدادات الربط.');
             }
             throw error;
         }
