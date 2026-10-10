@@ -83,7 +83,6 @@ service cloud.firestore {
         canView('screen-punches-payroll')
       );
       allow read: if document == 'users' && canUseApp() && request.auth.token.role == 'admin';
-      allow read: if document == 'notifications' && canUseApp();
       allow read, write: if document == 'metadata' && canUseApp() && request.auth.token.role == 'admin';
       allow write: if document == '_system_ping' && canUseApp() && request.auth.token.role == 'admin';
     }

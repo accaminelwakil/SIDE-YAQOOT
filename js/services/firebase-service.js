@@ -846,8 +846,7 @@
                     delete safeUser.password;
                     delete safeUser.passwordHash;
                     return safeUser;
-                }),
-                notifications: (typeof notificationsDb !== 'undefined' ? notificationsDb : [])
+                })
             };
 
             const collections = {
@@ -859,8 +858,7 @@
                 payrollDelivery: fullPayload.payrollDelivery,
                 payrollCycles: fullPayload.payrollCycles,
                 officialHolidays: fullPayload.officialHolidays,
-                users: fullPayload.users,
-                notifications: fullPayload.notifications
+                users: fullPayload.users
             };
             let queuedCount = 0;
             for (const [collectionKey, data] of Object.entries(collections)) {
@@ -925,7 +923,7 @@
 
             if (firestoreDb) {
                 const baseRef = firestoreDb.collection('sidi_yaqout_erp');
-                const [empSnap, attSnap, deptSnap, shiftSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap, notifSnap] = await Promise.all([
+                const [empSnap, attSnap, deptSnap, shiftSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap] = await Promise.all([
                     baseRef.doc('employees').get(),
                     baseRef.doc('attendance').get(),
                     baseRef.doc('departments').get(),
@@ -936,8 +934,7 @@
                         : Promise.resolve({ exists: false }),
                     baseRef.doc('payrollDelivery').get().catch(() => ({ exists: false })),
                     baseRef.doc('payrollCycles').get().catch(() => ({ exists: false })),
-                    baseRef.doc('officialHolidays').get().catch(() => ({ exists: false })),
-                    baseRef.doc('notifications').get().catch(() => ({ exists: false }))
+                    baseRef.doc('officialHolidays').get().catch(() => ({ exists: false }))
                 ]);
 
                 cloudData = {
@@ -949,8 +946,7 @@
                     users: userSnap.exists ? (userSnap.data().list || []) : null,
                     payrollDelivery: delivSnap.exists ? (delivSnap.data().data || {}) : null,
                     payrollCycles: cycSnap.exists ? (cycSnap.data().data || {}) : null,
-                    officialHolidays: holSnap.exists ? (holSnap.data().list || []) : null,
-                    notifications: notifSnap.exists ? (notifSnap.data().list || []) : null
+                    officialHolidays: holSnap.exists ? (holSnap.data().list || []) : null
                 };
             } else if (realtimeDb) {
                 const snapshot = await realtimeDb.ref('sidi_yaqout_erp').once('value');
@@ -1044,17 +1040,6 @@
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
         }
 
-        if (Array.isArray(cloudData.notifications)) {
-            setFirebaseSyncBaseline('notifications', cloudData.notifications);
-            if (typeof window.syncIncomingNotificationsFromRemote === 'function') {
-                window.syncIncomingNotificationsFromRemote(cloudData.notifications, 'firebase-download');
-            } else if (typeof notificationsDb !== 'undefined') {
-                notificationsDb = cloudData.notifications;
-                localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
-                if (typeof updateNotificationBellUI === 'function') updateNotificationBellUI();
-            }
-        }
-
         // تحديث كافة القوائم والجداول في الواجهة
         updateAllDeptDropdownsAndFilters();
         populateAllEmployeeDropdowns();
@@ -1110,15 +1095,6 @@
             case 'users':
                 usersDb = data;
                 localStorage.setItem('erp_users_db', JSON.stringify(data));
-                break;
-            case 'notifications':
-                if (typeof window.syncIncomingNotificationsFromRemote === 'function') {
-                    window.syncIncomingNotificationsFromRemote(data, 'firebase-transaction');
-                } else if (typeof notificationsDb !== 'undefined') {
-                    notificationsDb = data;
-                    localStorage.setItem('erp_notifications_db', JSON.stringify(data));
-                    if (typeof updateNotificationBellUI === 'function') updateNotificationBellUI();
-                }
                 break;
         }
         if (typeof refreshActiveScreenData === 'function') refreshActiveScreenData();
@@ -1211,7 +1187,7 @@
 
             if (firestoreDb) {
                 const baseRef = firestoreDb.collection('sidi_yaqout_erp');
-                const [empSnap, attSnap, deptSnap, shiftSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap, notifSnap] = await Promise.all([
+                const [empSnap, attSnap, deptSnap, shiftSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap] = await Promise.all([
                     readFirebaseSyncDocument(baseRef, 'employees', 'list', []),
                     readFirebaseSyncDocument(baseRef, 'attendance', 'list', []),
                     readFirebaseSyncDocument(baseRef, 'departments', 'list', []),
@@ -1222,8 +1198,7 @@
                         : Promise.resolve({ exists: false, permissionDenied: true }),
                     readFirebaseSyncDocument(baseRef, 'payrollDelivery', 'data', {}),
                     readFirebaseSyncDocument(baseRef, 'payrollCycles', 'data', {}),
-                    readFirebaseSyncDocument(baseRef, 'officialHolidays', 'list', []),
-                    readFirebaseSyncDocument(baseRef, 'notifications', 'list', [])
+                    readFirebaseSyncDocument(baseRef, 'officialHolidays', 'list', [])
                 ]);
 
                 if (empSnap.exists && Array.isArray(empSnap.data().list) && empSnap.data().list.length > 0) {
@@ -1272,16 +1247,6 @@
                 if (holSnap && holSnap.exists && Array.isArray(holSnap.data().list)) {
                     officialHolidaysDb = holSnap.data().list;
                     localStorage.setItem('erp_official_holidays_db', JSON.stringify(officialHolidaysDb));
-                }
-
-                if (notifSnap && notifSnap.exists && Array.isArray(notifSnap.data().list)) {
-                    if (typeof window.syncIncomingNotificationsFromRemote === 'function') {
-                        window.syncIncomingNotificationsFromRemote(notifSnap.data().list, 'firebase-startup');
-                    } else if (typeof notificationsDb !== 'undefined') {
-                        notificationsDb = notifSnap.data().list;
-                        localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
-                        if (typeof updateNotificationBellUI === 'function') updateNotificationBellUI();
-                    }
                 }
 
                 // تحديث كافة الشاشات والقوائم
@@ -1349,7 +1314,7 @@
             }
         };
 
-        if (immediate || collectionKey === 'employees' || collectionKey === 'attendance' || collectionKey === 'notifications') {
+        if (immediate || collectionKey === 'employees' || collectionKey === 'attendance') {
             executePush();
         } else {
             firebasePushDebounceTimers[collectionKey] = setTimeout(executePush, 400);
@@ -1507,26 +1472,6 @@
                 activeFirebaseListeners.push(unsubUsers);
             }
 
-            // 9. مراقبة الإشعارات والتنبيهات المباشرة بين الديسكتوب والموبايل
-            const unsubNotif = baseRef.doc('notifications').onSnapshot(async doc => {
-                if (isPerformingRemoteSync) return;
-                const d = doc.exists ? doc.data() : null;
-                const remoteNotifications = d && Array.isArray(d.list) ? d.list : [];
-                setFirebaseSyncBaseline('notifications', remoteNotifications);
-                if (await hasPendingFirebaseSync('notifications')) return;
-                if (!doc.exists) return;
-                if (d && Array.isArray(d.list)) {
-                    if (typeof window.syncIncomingNotificationsFromRemote === 'function') {
-                        window.syncIncomingNotificationsFromRemote(d.list, 'firebase-snapshot');
-                    } else if (typeof notificationsDb !== 'undefined') {
-                        notificationsDb = d.list;
-                        localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
-                        if (typeof updateNotificationBellUI === 'function') updateNotificationBellUI();
-                    }
-                }
-            }, err => console.warn('Firestore Notifications Listener error:', err));
-            activeFirebaseListeners.push(unsubNotif);
-
             isRealtimeSyncActive = true;
         } else if (realtimeDb) {
             const empRef = realtimeDb.ref('sidi_yaqout_erp/employees');
@@ -1543,16 +1488,6 @@
                 }
             });
             activeFirebaseListeners.push(() => empRef.off('value', onEmpChange));
-
-            const notifRef = realtimeDb.ref('sidi_yaqout_erp/notifications');
-            const onNotifChange = notifRef.on('value', snapshot => {
-                if (isPerformingRemoteSync || !snapshot.exists()) return;
-                const val = snapshot.val();
-                if (Array.isArray(val) && typeof window.syncIncomingNotificationsFromRemote === 'function') {
-                    window.syncIncomingNotificationsFromRemote(val, 'firebase-rt');
-                }
-            });
-            activeFirebaseListeners.push(() => notifRef.off('value', onNotifChange));
 
             isRealtimeSyncActive = true;
         }

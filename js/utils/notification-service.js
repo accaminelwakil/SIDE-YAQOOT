@@ -30,25 +30,18 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
     }
 
     // ── 2. حفظ الإشعارات في التخزين المحلي والمزامنة الفورية مع السحابة والسيرفر ──
-    function saveNotifications() {
+    function saveNotifications(syncServer = true) {
         localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
-        
-        // 1. مزامنة فورية عبر Firebase السحابي (بدون تأخير)
-        if (typeof pushSingleCollectionToFirebase === 'function') {
-            pushSingleCollectionToFirebase('notifications', notificationsDb, true);
-        }
 
-        // 2. مزامنة فورية مع سيرفر العيادة المحلي (Python Server)
-        syncNotificationsWithLocalServer();
+        if (syncServer) syncNotificationsWithLocalServer();
 
-        // 3. تحديث شارة الجرس
         updateNotificationBellUI();
     }
 
     // ── 3. إضافة إشعار جديد للنظام ──
     function createNotification({ type, title, message, targetUsername, targetRole, targetEmpId, senderName, relatedId, actionScreen }) {
         const notif = {
-            id: 'notif_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+            id: relatedId && type ? `leave-event:${relatedId}:${type}` : 'notif_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
             type: type || 'info', // 'leave_request', 'permission_request', 'leave_approved', 'leave_rejected', 'permission_approved', 'permission_rejected', 'punch_alert'
             title: title || 'إشعار جديد',
             message: message || '',
@@ -68,7 +61,10 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
             notificationsDb = notificationsDb.slice(0, 300);
         }
 
-        saveNotifications();
+        saveNotifications(false);
+        if (relatedId && type) {
+            syncNotificationsWithLocalServer({ type, relatedId });
+        }
         playNotificationChime();
 
         // إشعار Toast منبثق فوري
@@ -314,59 +310,59 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
 
     // ── 11. دمج الإشعارات الواردة من السحابة أو السيرفر (Live Sync Engine) ──
     function syncIncomingNotificationsFromRemote(remoteList, source = 'remote') {
-        if (!Array.isArray(remoteList) || remoteList.length === 0) return;
+        if (!Array.isArray(remoteList)) return;
 
-        const currentMap = new Map(notificationsDb.map(n => [n.id, n]));
-        let hasChanges = false;
-        const newlyReceivedForUser = [];
         const user = window.currentUser;
+        const currentMap = new Map(
+            notificationsDb
+                .filter(notification => !isNotificationForCurrentUser(notification, user))
+                .map(notification => [notification.id, notification])
+        );
+        const previousMap = new Map(notificationsDb.map(notification => [notification.id, notification]));
+        const newlyReceivedForUser = [];
 
         remoteList.forEach(rn => {
             if (!rn || !rn.id) return;
-            const local = currentMap.get(rn.id);
+            const local = previousMap.get(rn.id);
             if (!local) {
-                // إشعار جديد تماماً وصل من جهاز آخر
-                currentMap.set(rn.id, rn);
-                hasChanges = true;
-
                 if (!rn.isRead && isNotificationForCurrentUser(rn, user)) {
                     newlyReceivedForUser.push(rn);
                 }
-            } else {
-                // إذا تغيرت حالة القراءة في جهاز آخر
-                if (rn.isRead && !local.isRead) {
-                    local.isRead = true;
-                    hasChanges = true;
-                }
             }
+            currentMap.set(rn.id, rn);
         });
 
-        if (hasChanges) {
-            notificationsDb = Array.from(currentMap.values());
-            notificationsDb.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-            if (notificationsDb.length > 300) {
-                notificationsDb = notificationsDb.slice(0, 300);
-            }
-            localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
-            updateNotificationBellUI();
+        notificationsDb = Array.from(currentMap.values());
+        notificationsDb.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        if (notificationsDb.length > 300) {
+            notificationsDb = notificationsDb.slice(0, 300);
+        }
+        localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
+        updateNotificationBellUI();
 
-            // تنبيه صوتي ورسالة فورية عند استلام إشعار جديد للمستخدم
-            if (newlyReceivedForUser.length > 0) {
-                playNotificationChime();
-                const first = newlyReceivedForUser[0];
-                if (typeof showToast === 'function') {
-                    const extra = newlyReceivedForUser.length > 1 ? ` (+${newlyReceivedForUser.length - 1} إشعارات أخرى)` : '';
-                    const toastType = (first.type && first.type.includes('reject')) ? 'error' : ((first.type && first.type.includes('approve')) ? 'success' : 'info');
-                    showToast(`🔔 ${first.title}: ${first.message}${extra}`, toastType);
-                }
+        if (newlyReceivedForUser.length > 0) {
+            playNotificationChime();
+            const first = newlyReceivedForUser[0];
+            if (typeof showToast === 'function') {
+                const extra = newlyReceivedForUser.length > 1 ? ` (+${newlyReceivedForUser.length - 1} إشعارات أخرى)` : '';
+                const toastType = (first.type && first.type.includes('reject')) ? 'error' : ((first.type && first.type.includes('approve')) ? 'success' : 'info');
+                showToast(`🔔 ${first.title}: ${first.message}${extra}`, toastType);
             }
         }
     }
 
     // ── 12. المزامنة الثنائية مع السيرفر المحلي (Local Server Sync) ──
     let isLocalServerSyncInProgress = false;
-    async function syncNotificationsWithLocalServer() {
-        if (isLocalServerSyncInProgress) return;
+    const pendingNotificationEvents = [];
+    async function syncNotificationsWithLocalServer(event = null) {
+        if (isLocalServerSyncInProgress) {
+            if (event && !pendingNotificationEvents.some(item =>
+                item.type === event.type && item.relatedId === event.relatedId
+            )) {
+                pendingNotificationEvents.push(event);
+            }
+            return;
+        }
         const isHttp = window.location.protocol === 'http:' || window.location.protocol === 'https:';
         if (!isHttp) return;
 
@@ -375,19 +371,30 @@ let notificationsDb = JSON.parse(localStorage.getItem('erp_notifications_db') ||
             const resp = await window.authenticatedFetch('/api/notifications/sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notifications: notificationsDb.slice(0, 100) }),
+                body: JSON.stringify(event
+                    ? { action: 'event', type: event.type, relatedId: event.relatedId }
+                    : {
+                        action: 'sync-read',
+                        notifications: getCurrentUserNotifications().slice(0, 100).map(({ id, isRead }) => ({ id, isRead }))
+                    }),
                 cache: 'no-cache'
             });
-            if (resp.ok) {
-                const data = await resp.json();
-                if (data && data.success && Array.isArray(data.notifications)) {
-                    syncIncomingNotificationsFromRemote(data.notifications, 'local-server');
-                }
+            const data = await resp.json();
+            if (!resp.ok || !data || !data.success || !Array.isArray(data.notifications)) {
+                throw new Error(data.message || 'تعذرت مزامنة الإشعارات مع الخادم.');
             }
-        } catch (e) {
-            // صامت في حالة عدم توفر السيرفر
+            syncIncomingNotificationsFromRemote(data.notifications, 'server');
+        } catch (error) {
+            console.error('Notification sync failed:', error);
+            if (typeof showToast === 'function') {
+                showToast(event
+                    ? 'لم يتم تأكيد إرسال الإشعار؛ أبلغ مدير النظام.'
+                    : 'تعذر تحديث الإشعارات من الخادم.', 'error');
+            }
         } finally {
             isLocalServerSyncInProgress = false;
+            const nextEvent = pendingNotificationEvents.shift();
+            if (nextEvent) syncNotificationsWithLocalServer(nextEvent);
         }
     }
 

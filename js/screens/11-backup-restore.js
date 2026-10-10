@@ -163,6 +163,44 @@
         }
     }
 
+    async function restoreLatestServerPunchBackup() {
+        if (!window.currentUser || window.currentUser.role !== 'admin') {
+            alert('استعادة سجل البصمات متاحة لمدير النظام فقط.');
+            return;
+        }
+
+        const confirmed = confirm(
+            'سيتم استبدال سجل البصمات المحفوظ على الخادم بآخر نسخة مستقلة متاحة.\n' +
+            'لن تتغير بيانات الحضور الموجودة في واجهة البرنامج.\n\n' +
+            'هل تريد المتابعة؟'
+        );
+        if (!confirmed) return;
+
+        const btn = document.getElementById('btn-server-restore-punches');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳ جارٍ استعادة سجل البصمات...';
+        }
+
+        try {
+            const response = await window.authenticatedFetch('/api/backup/punches/restore-latest', {
+                method: 'POST'
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'تعذرت استعادة سجل البصمات.');
+            }
+            alert(`✔ ${result.message}\nعدد الحركات المستعادة: ${result.count}`);
+        } catch (error) {
+            alert(`⚠️ ${error.message || 'تعذرت استعادة سجل البصمات.'}`);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🗄️ استعادة سجل البصمات من نسخة السيرفر';
+            }
+        }
+    }
+
     // فحص النسخ التلقائي كل 24 ساعة في الخلفية
     function checkAndTrigger24hAutoBackup() {
         try {
@@ -452,5 +490,6 @@
     // إتاحة الدوال عامة
     window.saveBackupToServer = saveBackupToServer;
     window.restoreLatestBackupFromServer = restoreLatestBackupFromServer;
+    window.restoreLatestServerPunchBackup = restoreLatestServerPunchBackup;
     window.clearAllSystemDataCompletelyPrompt = clearAllSystemDataCompletelyPrompt;
     window.checkAndTrigger24hAutoBackup = checkAndTrigger24hAutoBackup;

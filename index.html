@@ -2071,6 +2071,10 @@
                                 🔄 استرجاع آخر نسخة احتياطية من السيرفر
                             </button>
                             <div style="font-size:11px; color:#166534; margin-top:5px; text-align:center;">يسترجع أحدث نسخة تم حفظها تلقائياً أو يدوياً على السيرفر</div>
+                            <button type="button" id="btn-server-restore-punches" class="btn-secondary" style="width:100%; justify-content:center; margin-top:9px; font-size:12px;" onclick="restoreLatestServerPunchBackup()">
+                                🗄️ استعادة سجل البصمات من نسخة السيرفر
+                            </button>
+                            <div style="font-size:11px; color:#92400e; margin-top:5px; text-align:center;">استعادة مستقلة تستبدل سجل البصمات الحالي فقط، ولا تغيّر بيانات الحضور في الواجهة.</div>
                         </div>
 
                         <div class="backup-drop-zone" onclick="document.getElementById('backup-file-input').click()" style="margin:12px 0;">

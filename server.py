@@ -64,6 +64,11 @@ import math
 import datetime
 import base64
 import glob
+import hashlib
+import re
+import sqlite3
+import tempfile
+from contextlib import contextmanager
 from flask import request, jsonify, g, abort
 
 _firebase_admin = None
@@ -529,6 +534,7 @@ RAILWAY_VOLUME_MOUNT_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
 PUNCHES_DATA_DIR = RAILWAY_VOLUME_MOUNT_PATH or BASE_DIR
 PUNCHES_LOG_FILE = os.path.join(PUNCHES_DATA_DIR, "attendance_punches.jsonl")
 PUNCHES_PARTITION_DIR = os.path.join(PUNCHES_DATA_DIR, "punches_by_month")
+PUNCHES_SQLITE_FILE = os.path.join(PUNCHES_DATA_DIR, "punches.sqlite3")
 PUNCHES_LOCK = threading.Lock()
 LEAVES_PERMISSIONS_PATH = ("sidi_yaqout_erp", "leavesPermissions")
 
@@ -572,49 +578,120 @@ def calculate_haversine_distance(lat1, lon1, lat2, lon2):
 
 
 def load_punches():
-    punches = []
-    with PUNCHES_LOCK:
-        if os.path.exists(PUNCHES_FILE):
-            with open(PUNCHES_FILE, "r", encoding="utf-8") as f:
-                legacy_punches = json.load(f)
-            if not isinstance(legacy_punches, list) or any(not isinstance(item, dict) for item in legacy_punches):
-                raise ValueError("Legacy attendance punch file has an invalid format")
-            punches.extend(legacy_punches)
+    with PUNCHES_LOCK, open_punch_database() as connection:
+        rows = connection.execute(
+            "SELECT payload FROM punches ORDER BY sort_timestamp DESC, punch_id DESC"
+        ).fetchall()
+    return [json.loads(row[0]) for row in rows]
 
-        if os.path.exists(PUNCHES_LOG_FILE):
-            with open(PUNCHES_LOG_FILE, "r", encoding="utf-8") as f:
-                for line_number, line in enumerate(f, start=1):
-                    if not line.strip():
-                        continue
-                    try:
-                        punch = json.loads(line)
-                    except json.JSONDecodeError as exc:
-                        raise ValueError(f"Invalid punch log entry at line {line_number}") from exc
-                    if not isinstance(punch, dict):
-                        raise ValueError(f"Invalid punch log entry at line {line_number}")
-                    punches.append(punch)
-        for file_path in sorted(glob.glob(os.path.join(PUNCHES_PARTITION_DIR, "*.jsonl"))):
-            punches.extend(read_punch_jsonl(file_path))
 
-    return sorted(
-        punches,
-        key=lambda punch: str(punch.get("timestamp") or f"{punch.get('date', '')}T{punch.get('time', '')}"),
-        reverse=True
-    )
+def punch_database_sources():
+    sources = [PUNCHES_FILE, PUNCHES_LOG_FILE]
+    if PUNCHES_DATA_DIR != BASE_DIR:
+        sources.append(os.path.join(BASE_DIR, "attendance_punches.jsonl"))
+    partition_dirs = {PUNCHES_PARTITION_DIR}
+    if PUNCHES_DATA_DIR != BASE_DIR:
+        partition_dirs.add(os.path.join(BASE_DIR, "punches_by_month"))
+    for directory in partition_dirs:
+        sources.extend(sorted(glob.glob(os.path.join(directory, "????-??.jsonl"))))
+    return list(dict.fromkeys(path for path in sources if os.path.isfile(path)))
+
+
+def read_punch_source(file_path):
+    if file_path.endswith(".json"):
+        with open(file_path, "r", encoding="utf-8") as source:
+            records = json.load(source)
+        if not isinstance(records, list) or any(not isinstance(item, dict) for item in records):
+            raise ValueError("Legacy attendance punch file has an invalid format")
+        return records
+    return read_punch_jsonl(file_path)
+
+
+def punch_storage_id(punch):
+    punch_id = punch.get("id")
+    if punch_id is not None and str(punch_id):
+        return str(punch_id)
+    canonical = json.dumps(punch, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "legacy-" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def punch_sort_timestamp(punch):
+    return str(punch.get("timestamp") or f"{punch_date(punch)}T{punch.get('time', '')}")
+
+
+@contextmanager
+def open_punch_database():
+    os.makedirs(os.path.dirname(PUNCHES_SQLITE_FILE) or ".", exist_ok=True)
+    connection = sqlite3.connect(PUNCHES_SQLITE_FILE, timeout=30)
+    try:
+        connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS punches ("
+            "punch_id TEXT PRIMARY KEY, sort_timestamp TEXT NOT NULL, emp_id TEXT, "
+            "punch_date TEXT NOT NULL, payload TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS imported_punch_sources (path TEXT PRIMARY KEY)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_punches_date_order "
+            "ON punches (punch_date, sort_timestamp DESC, punch_id DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_punches_employee_date_order "
+            "ON punches (emp_id, punch_date, sort_timestamp DESC, punch_id DESC)"
+        )
+        for source_path in punch_database_sources():
+            imported = connection.execute(
+                "SELECT 1 FROM imported_punch_sources WHERE path = ?", (os.path.abspath(source_path),)
+            ).fetchone()
+            if imported:
+                continue
+            records = read_punch_source(source_path)
+            for punch in records:
+                connection.execute(
+                    "INSERT OR IGNORE INTO punches (punch_id, sort_timestamp, emp_id, punch_date, payload) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        punch_storage_id(punch),
+                        punch_sort_timestamp(punch),
+                        str(punch.get("empId") or ""),
+                        punch_date(punch),
+                        json.dumps(punch, ensure_ascii=False, separators=(",", ":"))
+                    )
+                )
+            connection.execute(
+                "INSERT INTO imported_punch_sources (path) VALUES (?)", (os.path.abspath(source_path),)
+            )
+        connection.commit()
+        yield connection
+    except Exception:
+        connection.rollback()
+        connection.close()
+        raise
+    else:
+        connection.commit()
+        connection.close()
 
 
 def save_punch(punch_record):
     punch_date = str(punch_record.get("date") or "")
     if not valid_iso_date(punch_date):
         raise ValueError("Attendance punch has an invalid date")
-    os.makedirs(PUNCHES_PARTITION_DIR, exist_ok=True)
     serialized = json.dumps(punch_record, ensure_ascii=False, separators=(",", ":"))
-    with PUNCHES_LOCK:
-        path = os.path.join(PUNCHES_PARTITION_DIR, f"{punch_date[:7]}.jsonl")
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(serialized + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+    with PUNCHES_LOCK, open_punch_database() as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO punches (punch_id, sort_timestamp, emp_id, punch_date, payload) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                punch_storage_id(punch_record),
+                punch_sort_timestamp(punch_record),
+                str(punch_record.get("empId") or ""),
+                punch_date,
+                serialized
+            )
+        )
 
 
 def read_punch_jsonl(file_path):
@@ -678,50 +755,33 @@ def load_punches_page(start_date=None, end_date=None, limit=200, cursor=None, em
         raise ValueError("Invalid attendance punch date range")
 
     after = decode_punch_cursor(cursor)
-    punches = []
-    with PUNCHES_LOCK:
-        if os.path.exists(PUNCHES_FILE):
-            with open(PUNCHES_FILE, "r", encoding="utf-8") as file:
-                legacy_punches = json.load(file)
-            if not isinstance(legacy_punches, list) or any(not isinstance(item, dict) for item in legacy_punches):
-                raise ValueError("Legacy attendance punch file has an invalid format")
-            punches.extend(legacy_punches)
-
-        if os.path.exists(PUNCHES_LOG_FILE):
-            punches.extend(read_punch_jsonl(PUNCHES_LOG_FILE))
-
-        if start_date:
-            month_names = punch_months_between(start_date, end_date)
-        else:
-            month_names = [
-                os.path.basename(path)[:-6]
-                for path in glob.glob(os.path.join(PUNCHES_PARTITION_DIR, "????-??.jsonl"))
-            ]
-        for month in month_names:
-            path = os.path.join(PUNCHES_PARTITION_DIR, f"{month}.jsonl")
-            if os.path.exists(path):
-                punches.extend(read_punch_jsonl(path))
-
-    filtered = []
-    for punch in punches:
-        record_date = punch_date(punch)
-        if start_date and not start_date <= record_date <= end_date:
-            continue
-        if employee_id and str(punch.get("empId", "")) != str(employee_id):
-            continue
-        key = (str(punch.get("timestamp") or f"{record_date}T{punch.get('time', '')}"), str(punch.get("id") or ""))
-        if after and key >= after:
-            continue
-        filtered.append((key, punch))
-
-    filtered.sort(key=lambda item: item[0], reverse=True)
-    page = filtered[:limit + 1]
-    has_more = len(page) > limit
-    records = [item[1] for item in page[:limit]]
+    conditions = []
+    parameters = []
+    if start_date:
+        conditions.append("punch_date BETWEEN ? AND ?")
+        parameters.extend((start_date, end_date))
+    if employee_id:
+        conditions.append("emp_id = ?")
+        parameters.append(str(employee_id))
+    if after:
+        conditions.append("(sort_timestamp < ? OR (sort_timestamp = ? AND punch_id < ?))")
+        parameters.extend((after[0], after[0], after[1]))
+    where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+    with PUNCHES_LOCK, open_punch_database() as connection:
+        rows = connection.execute(
+            "SELECT punch_id, sort_timestamp, payload FROM punches" + where_clause +
+            " ORDER BY sort_timestamp DESC, punch_id DESC LIMIT ?",
+            (*parameters, limit + 1)
+        ).fetchall()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    records = [json.loads(row[2]) for row in page]
     return {
         "punches": records,
         "hasMore": has_more,
-        "nextCursor": encode_punch_cursor(records[-1]) if has_more and records else None
+        "nextCursor": base64.urlsafe_b64encode(json.dumps(
+            [page[-1][1], page[-1][0]], separators=(",", ":")
+        ).encode("utf-8")).decode("ascii") if has_more and page else None
     }
 
 
@@ -1057,7 +1117,6 @@ SYNC_COLLECTIONS = {
     "payrollDelivery": ("data", "screen-payroll-delivery"),
     "payrollCycles": ("data", "screen-payroll-summary"),
     "officialHolidays": ("list", "screen-attendance"),
-    "notifications": ("list", None),
     "users": ("list", None)
 }
 
@@ -1264,8 +1323,11 @@ def leaves_permissions_api():
             ]
             return jsonify({"success": True, "items": visible, "employees": available_employees})
 
-        if not leaves_is_admin(claims):
+        if request.method in ("PUT", "DELETE") and not leaves_is_admin(claims):
             return jsonify({"success": False, "message": "هذه العملية متاحة لمدير النظام فقط."}), 403
+
+        if request.method == "POST" and not leaves_is_admin(claims) and screen_access.get("screen-leaves-permissions") != "edit":
+            return jsonify({"success": False, "message": "تحتاج صلاحية تعديل لتقديم الطلب."}), 403
 
         if request.method == "PUT":
             data = request.get_json(silent=True) or {}
@@ -1314,6 +1376,7 @@ def leaves_permissions_api():
             "reason": str(data.get("reason") or "").strip()[:2000],
             "status": "pending",
             "submittedBy": submitted_by,
+            "submittedByUsername": normalized_username(claims.get("username")),
             "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "approvedBy": None,
             "approvedAt": None,
@@ -1366,8 +1429,8 @@ def leaves_permissions_api():
 def leaves_permissions_decision_api(item_id):
     claims = g.auth_claims
     screen_access = claims.get("screenAccess") or {}
-    if not leaves_is_admin(claims) and screen_access.get("screen-leaves-permissions") not in ("view", "edit"):
-        return jsonify({"success": False, "message": "ليست لديك صلاحية استخدام شاشة الإجازات والأذونات."}), 403
+    if not leaves_is_admin(claims) and screen_access.get("screen-leaves-permissions") != "edit":
+        return jsonify({"success": False, "message": "تحتاج صلاحية تعديل لاعتماد أو رفض الطلب."}), 403
 
     data = request.get_json(silent=True) or {}
     decision = str(data.get("decision") or "")
@@ -1432,21 +1495,49 @@ NOTIFICATIONS_FILE = os.path.join(BASE_DIR, "notifications_store.json")
 
 
 def load_server_notifications():
-    if os.path.exists(NOTIFICATIONS_FILE):
-        try:
-            with open(NOTIFICATIONS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return []
+    _, db = get_firebase_admin()
+    snapshot = db.collection("sidi_yaqout_erp").document("notifications").get()
+    if not snapshot.exists:
+        return load_legacy_server_notifications()
+    value = snapshot.to_dict() or {}
+    notifications = value.get("list", [])
+    if not isinstance(notifications, list) or any(not isinstance(item, dict) for item in notifications):
+        raise ValueError("Stored notification data has an invalid format")
+    return notifications[:300]
 
 
-def save_server_notifications(notifs):
-    try:
-        with open(NOTIFICATIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(notifs[:300], f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Error saving server notifications: {e}")
+def load_legacy_server_notifications():
+    if not os.path.exists(NOTIFICATIONS_FILE):
+        return []
+    with open(NOTIFICATIONS_FILE, "r", encoding="utf-8") as source:
+        notifications = json.load(source)
+    if not isinstance(notifications, list) or any(not isinstance(item, dict) for item in notifications):
+        raise ValueError("Legacy notification store has an invalid format")
+    return notifications[:300]
+
+
+def update_server_notifications(mutator):
+    from google.cloud import firestore
+
+    _, db = get_firebase_admin()
+    document = db.collection("sidi_yaqout_erp").document("notifications")
+    transaction = db.transaction(max_attempts=5)
+
+    @firestore.transactional
+    def apply_update(txn):
+        snapshot = document.get(transaction=txn)
+        if snapshot.exists:
+            value = snapshot.to_dict() or {}
+            current = value.get("list", [])
+        else:
+            current = load_legacy_server_notifications()
+        if not isinstance(current, list) or any(not isinstance(item, dict) for item in current):
+            raise ValueError("Stored notification data has an invalid format")
+        result, updated = mutator(current)
+        txn.set(document, {"list": updated[:300]})
+        return result, updated[:300]
+
+    return apply_update(transaction)
 
 
 def notifications_for_current_user(notifications):
@@ -1470,153 +1561,428 @@ def notifications_for_current_user(notifications):
             visible.append(notification)
         elif target_emp_id and employee_id and target_emp_id == employee_id:
             visible.append(notification)
-        elif target_role == role or (target_role == "manager" and is_manager):
+        elif target_role == role or (
+            target_role == "manager" and (is_manager or role in ("manager", "supervisor"))
+        ):
             visible.append(notification)
     return visible
+
+
+def build_leave_event_notification(claims, db, event_type, related_id):
+    snapshot = leaves_permissions_document(db).get()
+    value = snapshot.to_dict() if snapshot.exists else {}
+    records = value.get("list", []) if isinstance(value, dict) else []
+    if not isinstance(records, list):
+        raise ValueError("Stored leaves and permissions data is invalid")
+    item = next((
+        record for record in records
+        if isinstance(record, dict) and str(record.get("id")) == related_id
+    ), None)
+    if not item:
+        raise LookupError("الطلب المرتبط بالإشعار غير موجود.")
+
+    event_item_type = "leave" if event_type.startswith("leave_") else "permission"
+    if item.get("itemType") != event_item_type:
+        raise ValueError("نوع الإشعار لا يطابق الطلب.")
+    employee_records = leaves_employee_records(db)
+    employee = next((
+        record for record in employee_records
+        if str(record.get("id") or "") == str(item.get("empId") or "")
+    ), None)
+    actor_username = normalized_username(claims.get("username"))
+    is_request_event = event_type.endswith("_request")
+
+    if is_request_event:
+        submitted_by = normalized_username(item.get("submittedByUsername"))
+        actor_can_submit = submitted_by == actor_username if submitted_by else bool(
+            employee and leaves_can_manage_employee(claims, employee, employee_records)
+        )
+        if item.get("status") != "pending" or not actor_can_submit:
+            raise PermissionError("لا تملك صلاحية إرسال إشعار لهذا الطلب.")
+        title = "طلب إجازة جديد" if event_item_type == "leave" else "طلب إذن جديد"
+        if event_item_type == "leave":
+            detail = (
+                f"طلب {item.get('leaveTypeTitle') or 'إجازة'} من "
+                f"{item.get('startDate') or ''} إلى {item.get('endDate') or ''}."
+            )
+        else:
+            detail = f"طلب {item.get('permTypeTitle') or 'إذن'} يوم {item.get('startDate') or ''}."
+        targets = {"targetUsername": "admin", "targetRole": "manager", "targetEmpId": None}
+    else:
+        decision = "approved" if event_type.endswith("_approved") else "rejected"
+        if item.get("status") != decision:
+            raise ValueError("حالة الطلب لا تطابق الإشعار.")
+        if not leaves_is_admin(claims):
+            screen_access = claims.get("screenAccess") or {}
+            if (
+                screen_access.get("screen-leaves-permissions") != "edit"
+                or not employee
+                or not leaves_can_manage_employee(claims, employee, employee_records, allow_self=False)
+            ):
+                raise PermissionError("لا تملك صلاحية إرسال إشعار لهذا القرار.")
+        title = "تمت الموافقة على طلبك" if decision == "approved" else "تم رفض طلبك"
+        request_label = item.get("leaveTypeTitle") if event_item_type == "leave" else item.get("permTypeTitle")
+        detail = f"تم تحديث طلب {request_label or event_item_type}."
+        if decision == "rejected":
+            detail += f" السبب: {item.get('rejectionReason') or 'اعتذار لظروف العمل'}"
+        targets = {
+            "targetUsername": None,
+            "targetRole": None,
+            "targetEmpId": str(item.get("empId") or "")
+        }
+
+    return {
+        "id": f"leave-event:{related_id}:{event_type}",
+        "type": event_type,
+        "title": title,
+        "message": detail[:2000],
+        **targets,
+        "senderName": str(claims.get("fullName") or claims.get("username") or "النظام")[:120],
+        "relatedId": related_id,
+        "actionScreen": "screen-leaves-permissions",
+        "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "isRead": False
+    }
 
 
 @app.route("/api/notifications/sync", methods=["GET", "POST"])
 @require_firebase_auth()
 def notifications_sync_api():
-    """مزامنة فورية للإشعارات بين أجهزة الكمبيوتر والموبايل المتصلة بالمنظومة"""
-    current_notifs = load_server_notifications()
-    if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        incoming = data.get("notifications", [])
-        if isinstance(incoming, list) and len(incoming) <= 100:
-            current_map = {n["id"]: n for n in current_notifs if isinstance(n, dict) and "id" in n}
-            for n in incoming:
-                if isinstance(n, dict) and isinstance(n.get("id"), str) and len(n["id"]) <= 150:
-                    nid = n["id"]
-                    if nid not in current_map:
-                        safe_notification = {"id": nid}
-                        for key in ("title", "message", "type", "createdAt", "targetUsername", "targetRole",
-                                    "targetEmpId", "senderName", "actionScreen"):
-                            if key in n:
-                                safe_notification[key] = str(n[key])[:2000]
-                        safe_notification["isRead"] = n.get("isRead") is True
-                        current_map[nid] = safe_notification
-                    else:
-                        # تحديث حالة القراءة إن كانت مقروءة في الجهاز الوارد
-                        if n.get("isRead") and not current_map[nid].get("isRead"):
-                            current_map[nid]["isRead"] = True
-            
-            merged = list(current_map.values())
-            # ترتيب تنازلياً حسب وقت الإنشاء
-            merged.sort(key=lambda x: str(x.get("createdAt", "")), reverse=True)
-            merged = merged[:300]
-            save_server_notifications(merged)
-            return jsonify({"success": True, "notifications": notifications_for_current_user(merged)})
-        return jsonify({"success": False, "message": "Invalid format"}), 400
-    else:
-        return jsonify({"success": True, "notifications": notifications_for_current_user(current_notifs)})
+    """Return only authorized notifications; clients can only mark visible ones read."""
+    try:
+        if request.method == "GET":
+            current = load_server_notifications()
+            return jsonify({"success": True, "notifications": notifications_for_current_user(current)})
+
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "message": "بيانات مزامنة الإشعارات غير صالحة."}), 400
+
+        if data.get("action") == "sync-read":
+            incoming = data.get("notifications")
+            if (
+                not isinstance(incoming, list)
+                or len(incoming) > 100
+                or any(
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("id"), str)
+                    or not 0 < len(item["id"]) <= 200
+                    or not isinstance(item.get("isRead"), bool)
+                    for item in incoming
+                )
+            ):
+                return jsonify({"success": False, "message": "قائمة تحديثات الإشعارات غير صالحة."}), 400
+            read_ids = {item["id"] for item in incoming if item["isRead"]}
+
+            def mark_visible_read(current):
+                for notification in current:
+                    if (
+                        notification.get("id") in read_ids
+                        and notifications_for_current_user([notification])
+                    ):
+                        notification["isRead"] = True
+                return None, current
+
+            _, updated = update_server_notifications(mark_visible_read)
+            return jsonify({
+                "success": True,
+                "notifications": notifications_for_current_user(updated)
+            })
+
+        if data.get("action") == "event":
+            event_type = data.get("type")
+            related_id = data.get("relatedId")
+            if event_type not in {
+                "leave_request", "permission_request",
+                "leave_approved", "permission_approved",
+                "leave_rejected", "permission_rejected"
+            }:
+                return jsonify({"success": False, "message": "نوع الإشعار غير مسموح."}), 400
+            if not isinstance(related_id, str) or not 0 < len(related_id) <= 200:
+                return jsonify({"success": False, "message": "معرف الطلب غير صالح."}), 400
+            _, db = get_firebase_admin()
+            notification = build_leave_event_notification(
+                g.auth_claims, db, event_type, related_id
+            )
+            notification_id = notification["id"]
+
+            def append_event(current):
+                if not any(item.get("id") == notification_id for item in current):
+                    current.insert(0, notification)
+                current.sort(key=lambda item: str(item.get("createdAt") or ""), reverse=True)
+                return None, current
+
+            _, updated = update_server_notifications(append_event)
+            return jsonify({
+                "success": True,
+                "notifications": notifications_for_current_user(updated)
+            }), 201
+
+        return jsonify({"success": False, "message": "عملية مزامنة الإشعارات غير مدعومة."}), 400
+    except LookupError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 409
+    except Exception:
+        app.logger.exception("Notifications API failed")
+        return jsonify({"success": False, "message": "تعذرت مزامنة الإشعارات بأمان."}), 500
 
 
 # ── النسخ الاحتياطي التلقائي واسترجاع البيانات (Server Backup System) ──
-BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
+BACKUPS_DIR = os.path.join(RAILWAY_VOLUME_MOUNT_PATH or BASE_DIR, "backups")
+LEGACY_BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
 LATEST_BACKUP_FILE = os.path.join(BACKUPS_DIR, "latest_backup.json")
 
 
 def ensure_backups_dir():
-    if not os.path.exists(BACKUPS_DIR):
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
+
+
+def backup_storage_is_durable():
+    return not os.environ.get("RAILWAY_ENVIRONMENT") or bool(RAILWAY_VOLUME_MOUNT_PATH)
+
+
+def write_json_atomically(path, data):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    file_descriptor, temporary_path = tempfile.mkstemp(prefix=".backup-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as backup_file:
+            json.dump(data, backup_file, ensure_ascii=False, separators=(",", ":"))
+            backup_file.flush()
+            os.fsync(backup_file.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+
+
+def write_punch_database_backup(path):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    file_descriptor, temporary_path = tempfile.mkstemp(prefix=".punches-", suffix=".sqlite3", dir=directory)
+    os.close(file_descriptor)
+    try:
+        with PUNCHES_LOCK, open_punch_database() as source:
+            destination = sqlite3.connect(temporary_path, timeout=30)
+            try:
+                source.backup(destination)
+            finally:
+                destination.close()
+        file_descriptor = os.open(temporary_path, os.O_RDWR)
         try:
-            os.makedirs(BACKUPS_DIR, exist_ok=True)
-        except Exception:
-            pass
+            os.fsync(file_descriptor)
+        finally:
+            os.close(file_descriptor)
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+
+
+def restore_punch_database_backup(path):
+    with PUNCHES_LOCK, open_punch_database() as connection:
+        connection.execute("ATTACH DATABASE ? AS backup_snapshot", (path,))
+        check = connection.execute("PRAGMA backup_snapshot.quick_check").fetchone()
+        if not check or check[0] != "ok":
+            raise ValueError("Punch backup failed SQLite integrity verification")
+        tables = {
+            row[0] for row in connection.execute(
+                "SELECT name FROM backup_snapshot.sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if not {"punches", "imported_punch_sources"}.issubset(tables):
+            raise ValueError("Punch backup is missing required tables")
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("DELETE FROM punches")
+        connection.execute("DELETE FROM imported_punch_sources")
+        connection.execute(
+            "INSERT INTO punches (punch_id, sort_timestamp, emp_id, punch_date, payload) "
+            "SELECT punch_id, sort_timestamp, emp_id, punch_date, payload "
+            "FROM backup_snapshot.punches"
+        )
+        connection.execute(
+            "INSERT INTO imported_punch_sources (path) "
+            "SELECT path FROM backup_snapshot.imported_punch_sources"
+        )
+        count = connection.execute("SELECT COUNT(*) FROM punches").fetchone()[0]
+        connection.commit()
+    return count
+
+
+def server_backup_candidates():
+    candidates = []
+    directories = {BACKUPS_DIR, LEGACY_BACKUPS_DIR}
+    for directory in directories:
+        if not os.path.isdir(directory):
+            continue
+        for filename in os.listdir(directory):
+            if filename == "latest_backup.json" or (
+                filename.startswith("backup_") and filename.endswith(".json")
+            ):
+                path = os.path.join(directory, filename)
+                if os.path.isfile(path):
+                    candidates.append(path)
+    return candidates
+
+
+def latest_versioned_server_backup():
+    candidates = [
+        path for path in server_backup_candidates()
+        if os.path.basename(path).startswith("backup_")
+        and os.path.basename(path).endswith(".json")
+    ]
+    return max(candidates, key=os.path.getmtime) if candidates else None
+
+
+def punch_backup_path_for_server_backup(backup_path):
+    match = re.fullmatch(r"backup_(\d{8}_\d{6}_\d{6})\.json", os.path.basename(backup_path))
+    if not match:
+        return None
+    backup_directory = os.path.dirname(backup_path)
+    return os.path.join(backup_directory, f"punches_backup_{match.group(1)}.sqlite3")
+
+
+def latest_server_backup_with_punches_snapshot():
+    candidates = []
+    for path in server_backup_candidates():
+        if not path.startswith(os.path.join(BACKUPS_DIR, "backup_")) or not path.endswith(".json"):
+            continue
+        snapshot_path = punch_backup_path_for_server_backup(path)
+        if snapshot_path and os.path.isfile(snapshot_path):
+            candidates.append(path)
+    return max(candidates, key=os.path.getmtime) if candidates else None
 
 
 @app.route("/api/backup/save", methods=["POST"])
 @require_firebase_auth(admin_only=True)
 def save_server_backup_api():
-    """حفظ نسخة احتياطية من بيانات المنظومة على السيرفر مع الاحتفاظ بآخر نسخة"""
+    """Persist an atomic backup on durable storage without deleting prior snapshots."""
+    if not backup_storage_is_durable():
+        return jsonify({
+            "success": False,
+            "message": "حفظ النسخ الاحتياطية متوقف حتى ربط Railway Volume دائم."
+        }), 503
     try:
-        data = request.get_json(force=True, silent=True)
-        if not data:
-            return jsonify({"success": False, "message": "لا توجد بيانات صالحة للحفظ!"}), 400
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or not isinstance(data.get("data"), dict):
+            return jsonify({"success": False, "message": "صيغة النسخة الاحتياطية غير صالحة."}), 400
 
         ensure_backups_dir()
-        now = datetime.datetime.now()
-        timestamp_str = now.strftime("%Y%m%d_%H%M%S")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        timestamp_str = now.strftime("%Y%m%d_%H%M%S_%f")
         filename = f"backup_{timestamp_str}.json"
         filepath = os.path.join(BACKUPS_DIR, filename)
 
-        # حفظ الملف المؤرخ
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-        # حفظ أو تحديث ملف آخر نسخة
-        with open(LATEST_BACKUP_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-        # الاحتفاظ بآخر 30 نسخة وحذف القديم لتوفير المساحة
-        try:
-            all_backups = sorted(
-                [f for f in os.listdir(BACKUPS_DIR) if f.startswith("backup_") and f.endswith(".json")],
-                reverse=True
-            )
-            for old_f in all_backups[30:]:
-                os.remove(os.path.join(BACKUPS_DIR, old_f))
-        except Exception:
-            pass
+        write_punch_database_backup(
+            os.path.join(BACKUPS_DIR, f"punches_backup_{timestamp_str}.sqlite3")
+        )
+        write_json_atomically(filepath, data)
+        write_json_atomically(LATEST_BACKUP_FILE, data)
 
         return jsonify({
             "success": True,
             "filename": filename,
-            "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": now.astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             "message": "تم حفظ النسخة الاحتياطية بنجاح على السيرفر! 💾"
         }), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": f"حدث خطأ أثناء حفظ النسخة: {str(e)}"}), 500
+    except Exception:
+        app.logger.exception("Saving server backup failed")
+        return jsonify({"success": False, "message": "تعذر حفظ النسخة الاحتياطية؛ لم يتم تأكيد نجاح الحفظ."}), 500
 
 
 @app.route("/api/backup/latest", methods=["GET"])
 @require_firebase_auth(admin_only=True)
 def get_latest_server_backup_api():
     """استرجاع أحدث نسخة احتياطية محفوظة على السيرفر"""
-    ensure_backups_dir()
-    if not os.path.exists(LATEST_BACKUP_FILE):
+    if not backup_storage_is_durable():
+        return jsonify({
+            "success": False,
+            "message": "استرجاع النسخ الاحتياطية متوقف حتى ربط Railway Volume دائم."
+        }), 503
+    try:
+        candidates = server_backup_candidates()
+    except OSError:
+        app.logger.exception("Listing server backup files failed")
+        return jsonify({"success": False, "message": "تعذر فحص ملفات النسخ الاحتياطية."}), 500
+    if not candidates:
         return jsonify({
             "success": False,
             "message": "لا توجد أي نسخ احتياطية محفوظة على السيرفر حتى الآن."
         }), 404
 
     try:
-        with open(LATEST_BACKUP_FILE, "r", encoding="utf-8") as f:
+        latest_path = latest_versioned_server_backup() or max(candidates, key=os.path.getmtime)
+        with open(latest_path, "r", encoding="utf-8") as f:
             backup_data = json.load(f)
 
-        mtime = os.path.getmtime(LATEST_BACKUP_FILE)
+        mtime = os.path.getmtime(latest_path)
         mod_date = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
 
+        punch_snapshot_path = punch_backup_path_for_server_backup(latest_path)
         return jsonify({
             "success": True,
+            "filename": os.path.basename(latest_path),
+            "punchesSnapshotAvailable": bool(punch_snapshot_path and os.path.isfile(punch_snapshot_path)),
             "lastModified": mod_date,
             "backup": backup_data,
             "message": f"تم جلب آخر نسخة احتياطية بنجاح (تاريخ: {mod_date})"
         }), 200
-    except Exception as e:
-        return jsonify({"success": False, "message": f"تعذر قراءة النسخة الاحتياطية: {str(e)}"}), 500
+    except Exception:
+        app.logger.exception("Reading latest server backup failed")
+        return jsonify({"success": False, "message": "تعذر قراءة أحدث نسخة احتياطية."}), 500
+
+
+@app.route("/api/backup/punches/restore-latest", methods=["POST"])
+@require_firebase_auth(admin_only=True)
+def restore_latest_server_punch_backup_api():
+    if not backup_storage_is_durable():
+        return jsonify({
+            "success": False,
+            "message": "استعادة سجل البصمات متوقفة حتى ربط Railway Volume دائم."
+        }), 503
+    try:
+        backup_path = latest_server_backup_with_punches_snapshot()
+        if not backup_path:
+            return jsonify({"success": False, "message": "لا توجد نسخة خادم تحتوي على لقطة مستقلة لسجل البصمات."}), 404
+        punch_backup_path = punch_backup_path_for_server_backup(backup_path)
+        if not punch_backup_path or not os.path.isfile(punch_backup_path):
+            return jsonify({"success": False, "message": "النسخة المحددة لا تحتوي على نسخة مستقلة لسجل البصمات."}), 404
+        count = restore_punch_database_backup(punch_backup_path)
+        return jsonify({"success": True, "count": count, "message": "تم استعادة سجل البصمات والتحقق من سلامة قاعدة البيانات."})
+    except (OSError, sqlite3.Error, ValueError):
+        app.logger.exception("Restoring server punch backup failed")
+        return jsonify({"success": False, "message": "تعذرت استعادة سجل البصمات؛ لم يتم تأكيد نجاح الاستعادة."}), 500
 
 
 @app.route("/api/backup/list", methods=["GET"])
 @require_firebase_auth(admin_only=True)
 def list_server_backups_api():
     """عرض قائمة النسخ الاحتياطية المتاحة على السيرفر"""
-    ensure_backups_dir()
-    backups = []
+    if not backup_storage_is_durable():
+        return jsonify({
+            "success": False,
+            "message": "عرض النسخ الاحتياطية متوقف حتى ربط Railway Volume دائم."
+        }), 503
     try:
-        for fname in sorted(os.listdir(BACKUPS_DIR), reverse=True):
-            if fname.startswith("backup_") and fname.endswith(".json"):
-                fpath = os.path.join(BACKUPS_DIR, fname)
-                mtime = os.path.getmtime(fpath)
-                size_kb = round(os.path.getsize(fpath) / 1024, 1)
-                backups.append({
-                    "filename": fname,
-                    "date": datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    "sizeKb": size_kb
-                })
-    except Exception:
-        pass
-    return jsonify({"success": True, "backups": backups})
+        backups = []
+        for filepath in server_backup_candidates():
+            fname = os.path.basename(filepath)
+            if not (fname.startswith("backup_") and fname.endswith(".json")):
+                continue
+            mtime = os.path.getmtime(filepath)
+            backups.append({
+                "filename": fname,
+                "date": datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                "sizeKb": round(os.path.getsize(filepath) / 1024, 1)
+            })
+        backups.sort(key=lambda backup: (backup["date"], backup["filename"]), reverse=True)
+        return jsonify({"success": True, "backups": backups})
+    except OSError:
+        app.logger.exception("Listing server backup files failed")
+        return jsonify({"success": False, "message": "تعذر قراءة قائمة النسخ الاحتياطية."}), 500
 
 
 
