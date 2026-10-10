@@ -10,6 +10,296 @@
     let isRealtimeSyncActive = false;
     let activeFirebaseListeners = [];
     let isPerformingRemoteSync = false;
+    const firebaseSyncBaselines = new Map();
+    let firebaseSyncDbPromise = null;
+
+    function openFirebaseSyncDatabase() {
+        if (!window.indexedDB) {
+            return Promise.reject(new Error('التخزين الآمن لقائمة المزامنة غير متاح على هذا المتصفح.'));
+        }
+        if (!firebaseSyncDbPromise) {
+            firebaseSyncDbPromise = new Promise((resolve, reject) => {
+                const request = window.indexedDB.open('sidi-yaqout-sync', 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains('baselines')) db.createObjectStore('baselines', { keyPath: 'key' });
+                    if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'key' });
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error('تعذر فتح تخزين المزامنة المحلي.'));
+                request.onblocked = () => reject(new Error('أغلق تبويبات التطبيق القديمة ثم أعد المحاولة.'));
+            });
+        }
+        return firebaseSyncDbPromise;
+    }
+
+    function firebaseSyncStoreRequest(storeName, mode, makeRequest) {
+        return openFirebaseSyncDatabase().then(db => new Promise((resolve, reject) => {
+            const transaction = db.transaction(storeName, mode);
+            const request = makeRequest(transaction.objectStore(storeName));
+            let result;
+            request.onsuccess = () => { result = request.result; };
+            request.onerror = () => reject(request.error || new Error('تعذر الوصول إلى قائمة المزامنة المحلية.'));
+            transaction.oncomplete = () => resolve(result);
+            transaction.onerror = () => reject(transaction.error || new Error('تعذر حفظ قائمة المزامنة المحلية.'));
+            transaction.onabort = () => reject(transaction.error || new Error('أُلغيت عملية تخزين المزامنة المحلية.'));
+        }));
+    }
+
+    function cloneFirebaseData(data) {
+        return JSON.parse(JSON.stringify(data));
+    }
+
+    function setFirebaseSyncBaseline(collectionKey, data) {
+        const copy = cloneFirebaseData(data);
+        firebaseSyncBaselines.set(collectionKey, copy);
+        firebaseSyncStoreRequest('baselines', 'readwrite', store =>
+            store.put({ key: collectionKey, data: copy })
+        ).catch(error => {
+            console.error('Unable to persist Firebase sync baseline:', error);
+            if (typeof showToast === 'function') showToast(error.message, 'error');
+        });
+    }
+
+    async function getFirebaseSyncBaseline(collectionKey) {
+        if (firebaseSyncBaselines.has(collectionKey)) {
+            return cloneFirebaseData(firebaseSyncBaselines.get(collectionKey));
+        }
+        const record = await firebaseSyncStoreRequest('baselines', 'readonly', store => store.get(collectionKey));
+        if (!record) return undefined;
+        firebaseSyncBaselines.set(collectionKey, record.data);
+        return cloneFirebaseData(record.data);
+    }
+
+    async function getPendingFirebaseSync(collectionKey) {
+        return firebaseSyncStoreRequest('pending', 'readonly', store => store.get(collectionKey));
+    }
+
+    async function hasPendingFirebaseSync(collectionKey) {
+        try {
+            return Boolean(await getPendingFirebaseSync(collectionKey));
+        } catch (error) {
+            console.error('Unable to check pending Firebase changes:', error);
+            if (typeof showToast === 'function') showToast(error.message, 'error');
+            return true;
+        }
+    }
+
+    function queueFirebaseSync(collectionKey, baseData, desiredData, status, conflictPath) {
+        return getPendingFirebaseSync(collectionKey).then(existing => {
+            const pending = {
+                key: collectionKey,
+                baseData: existing ? existing.baseData : cloneFirebaseData(baseData),
+                data: cloneFirebaseData(desiredData),
+                status: status || 'pending',
+                conflictPath: conflictPath || null,
+                updatedAt: new Date().toISOString()
+            };
+            return firebaseSyncStoreRequest('pending', 'readwrite', store => store.put(pending));
+        });
+    }
+
+    const SYNC_MISSING = Symbol('sync-missing');
+
+    function syncValuesEqual(left, right) {
+        if (left === SYNC_MISSING || right === SYNC_MISSING) return left === right;
+        return JSON.stringify(left) === JSON.stringify(right);
+    }
+
+    function cloneSyncValue(value) {
+        return value === SYNC_MISSING ? SYNC_MISSING : cloneFirebaseData(value);
+    }
+
+    function mergeFirebaseSyncData(base, desired, latest, path = 'data') {
+        if (syncValuesEqual(desired, base)) return cloneSyncValue(latest);
+        if (syncValuesEqual(latest, base)) return cloneSyncValue(desired);
+        if (syncValuesEqual(desired, latest)) return cloneSyncValue(latest);
+
+        const isObject = value => value === SYNC_MISSING || (
+            value !== null && typeof value === 'object' && !Array.isArray(value)
+        );
+        if (isObject(base) && isObject(desired) && isObject(latest)) {
+            const baseObject = base === SYNC_MISSING ? {} : base;
+            const desiredObject = desired === SYNC_MISSING ? {} : desired;
+            const latestObject = latest === SYNC_MISSING ? {} : latest;
+            const keys = new Set([
+                ...Object.keys(baseObject),
+                ...Object.keys(desiredObject),
+                ...Object.keys(latestObject)
+            ]);
+            const merged = {};
+            for (const key of keys) {
+                const value = mergeFirebaseSyncData(
+                    Object.prototype.hasOwnProperty.call(baseObject, key) ? baseObject[key] : SYNC_MISSING,
+                    Object.prototype.hasOwnProperty.call(desiredObject, key) ? desiredObject[key] : SYNC_MISSING,
+                    Object.prototype.hasOwnProperty.call(latestObject, key) ? latestObject[key] : SYNC_MISSING,
+                    `${path}.${key}`
+                );
+                if (value !== SYNC_MISSING) merged[key] = value;
+            }
+            return merged;
+        }
+
+        const isList = value => value === SYNC_MISSING || Array.isArray(value);
+        if (isList(base) && isList(desired) && isList(latest)) {
+            const baseList = base === SYNC_MISSING ? [] : base;
+            const desiredList = desired === SYNC_MISSING ? [] : desired;
+            const latestList = latest === SYNC_MISSING ? [] : latest;
+            const identity = item => {
+                if (!item || typeof item !== 'object') return null;
+                if (item.empId !== undefined && item.date) return `attendance:${item.empId}:${item.date}`;
+                if (item.id !== undefined && item.id !== null) return `id:${item.id}`;
+                if (item.username) return `username:${String(item.username).trim().toLowerCase()}`;
+                return null;
+            };
+            const allItems = [...baseList, ...desiredList, ...latestList];
+            if (allItems.length > 0 && allItems.every(item => identity(item) !== null)) {
+                const index = list => {
+                    const result = new Map();
+                    list.forEach(item => {
+                        const key = identity(item);
+                        if (result.has(key)) throw new Error(`${path}[duplicate-id=${key}]`);
+                        result.set(key, item);
+                    });
+                    return result;
+                };
+                const baseMap = index(baseList);
+                const desiredMap = index(desiredList);
+                const latestMap = index(latestList);
+                const order = [
+                    ...latestMap.keys(),
+                    ...[...desiredMap.keys()].filter(key => !latestMap.has(key))
+                ];
+                const merged = [];
+                for (const key of order) {
+                    const value = mergeFirebaseSyncData(
+                        baseMap.has(key) ? baseMap.get(key) : SYNC_MISSING,
+                        desiredMap.has(key) ? desiredMap.get(key) : SYNC_MISSING,
+                        latestMap.has(key) ? latestMap.get(key) : SYNC_MISSING,
+                        `${path}[id=${key}]`
+                    );
+                    if (value !== SYNC_MISSING) merged.push(value);
+                }
+                return merged;
+            }
+
+            const keyOf = item => JSON.stringify(item);
+            const baseSet = new Set(baseList.map(keyOf));
+            const desiredSet = new Set(desiredList.map(keyOf));
+            const latestSet = new Set(latestList.map(keyOf));
+            const values = new Map([...baseList, ...desiredList, ...latestList].map(item => [keyOf(item), item]));
+            const order = [
+                ...latestList.map(keyOf),
+                ...desiredList.map(keyOf).filter(key => !latestSet.has(key))
+            ];
+            return [...new Set(order)].filter(key => {
+                const baseHas = baseSet.has(key);
+                const desiredHas = desiredSet.has(key);
+                const latestHas = latestSet.has(key);
+                return desiredHas === baseHas ? latestHas : desiredHas;
+            }).map(key => cloneFirebaseData(values.get(key)));
+        }
+
+        throw new Error(path);
+    }
+
+    async function syncFirebaseCollection(collectionKey, desiredData) {
+        const pending = await getPendingFirebaseSync(collectionKey);
+        const baseData = pending ? pending.baseData : await getFirebaseSyncBaseline(collectionKey);
+        if (baseData === undefined) {
+            throw new Error(`لا توجد نسخة سحابية مرجعية للمجموعة ${collectionKey}؛ لم تُرسل التعديلات.`);
+        }
+        await queueFirebaseSync(collectionKey, baseData, desiredData);
+
+        if (!navigator.onLine) {
+            if (typeof showToast === 'function') showToast('حُفظ التعديل محليًا وسيُزامن عند عودة الاتصال.', 'warning');
+            return { pending: true };
+        }
+
+        if (firestoreDb) {
+            let response;
+            try {
+                response = await authenticatedFetch(`/api/firebase/collection/${encodeURIComponent(collectionKey)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ baseData, data: desiredData })
+                });
+            } catch (error) {
+                await queueFirebaseSync(collectionKey, baseData, desiredData);
+                if (typeof showToast === 'function') {
+                    showToast('حُفظ التعديل محليًا وتعذر الوصول للخادم؛ ستتم إعادة المحاولة عند عودة الاتصال.', 'warning');
+                }
+                return { pending: true, error };
+            }
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                if (response.status === 409) {
+                    await queueFirebaseSync(collectionKey, baseData, desiredData, 'conflict', result.path);
+                    if (typeof showToast === 'function') {
+                        showToast(`${result.message || 'تعارض مزامنة'} (${result.path || collectionKey})`, 'error');
+                    }
+                    return { pending: true, conflict: true };
+                }
+                throw new Error(result.message || `فشل مزامنة المجموعة ${collectionKey}.`);
+            }
+            setFirebaseSyncBaseline(collectionKey, result.data);
+            await firebaseSyncStoreRequest('pending', 'readwrite', store => store.delete(collectionKey));
+            return { pending: false, data: result.data };
+        }
+
+        if (realtimeDb) {
+            let conflictPath = null;
+            const result = await realtimeDb.ref(`sidi_yaqout_erp/${collectionKey}`).transaction(current => {
+                try {
+                    const latestData = current === null
+                        ? (Array.isArray(baseData) ? [] : {})
+                        : current;
+                    return mergeFirebaseSyncData(baseData, desiredData, latestData);
+                } catch (error) {
+                    conflictPath = error.message;
+                    return undefined;
+                }
+            }, undefined, false);
+            if (!result.committed) {
+                if (conflictPath) {
+                    await queueFirebaseSync(collectionKey, baseData, desiredData, 'conflict');
+                    if (typeof showToast === 'function') {
+                        showToast(`تعارض مزامنة (${conflictPath})؛ لم يتم الكتابة فوق تعديل آخر.`, 'error');
+                    }
+                    return { pending: true, conflict: true };
+                }
+                throw new Error(`فشلت معاملة المزامنة للمجموعة ${collectionKey}.`);
+            }
+            const merged = result.snapshot.val();
+            setFirebaseSyncBaseline(collectionKey, merged);
+            await firebaseSyncStoreRequest('pending', 'readwrite', store => store.delete(collectionKey));
+            return { pending: false, data: merged };
+        }
+        throw new Error('لا يوجد اتصال Firebase صالح للمزامنة.');
+    }
+
+    async function flushPendingFirebaseSync() {
+        if (!navigator.onLine || !isFirebaseConnected) return;
+        const pendingItems = await firebaseSyncStoreRequest('pending', 'readonly', store => store.getAll());
+        for (const item of pendingItems || []) {
+            if (item.status === 'conflict') {
+                if (typeof showToast === 'function') {
+                    showToast(`هناك تعارض محفوظ في ${item.key} عند ${item.conflictPath || 'سجل غير محدد'}؛ راجعه قبل إعادة المحاولة.`, 'error');
+                }
+                continue;
+            }
+            const result = await syncFirebaseCollection(item.key, item.data);
+            if (!result.pending) applySyncedCollectionData(item.key, result.data);
+        }
+    }
+
+    window.addEventListener('online', () => {
+        flushPendingFirebaseSync().catch(error => {
+            console.error('Unable to flush offline Firebase changes:', error);
+            if (typeof showToast === 'function') showToast(error.message, 'error');
+        });
+    });
+    window.retryPendingFirebaseSync = flushPendingFirebaseSync;
 
     function ensureFirebaseAppReady() {
         const defaultConfig = window.SIDI_YAQOOT_FIREBASE_CONFIG;
@@ -81,6 +371,14 @@
     window.activateAuthenticatedFirebaseSession = async () => {
         setupFirebaseRealtimeListeners();
         await autoSyncFromCloudOnStartup();
+        await flushPendingFirebaseSync();
+        if (typeof window.loadLeavesPermissionsFromServer === 'function') {
+            try {
+                await window.loadLeavesPermissionsFromServer(true);
+            } catch (error) {
+                console.error('Unable to load leave requests after sign-in:', error);
+            }
+        }
     };
 
     async function replaceFirebaseWebApiKey(apiKey) {
@@ -549,34 +847,41 @@
                     delete safeUser.passwordHash;
                     return safeUser;
                 }),
-                notifications: (typeof notificationsDb !== 'undefined' ? notificationsDb : []),
-                leavesPermissions: (typeof leavesPermissionsDb !== 'undefined' ? leavesPermissionsDb : [])
+                notifications: (typeof notificationsDb !== 'undefined' ? notificationsDb : [])
             };
 
-            if (firestoreDb) {
-                const batch = firestoreDb.batch();
-                const baseRef = firestoreDb.collection('sidi_yaqout_erp');
-                
-                batch.set(baseRef.doc('metadata'), fullPayload.metadata);
-                batch.set(baseRef.doc('departments'), { list: fullPayload.departments });
-                batch.set(baseRef.doc('employees'), { list: fullPayload.employees });
-                batch.set(baseRef.doc('shifts'), { list: fullPayload.shifts });
-                batch.set(baseRef.doc('attendance'), { list: fullPayload.attendance });
-                batch.set(baseRef.doc('salaryAdjustments'), { data: fullPayload.salaryAdjustments });
-                batch.set(baseRef.doc('payrollDelivery'), { data: fullPayload.payrollDelivery });
-                batch.set(baseRef.doc('payrollCycles'), { data: fullPayload.payrollCycles });
-                batch.set(baseRef.doc('officialHolidays'), { list: fullPayload.officialHolidays });
-                batch.set(baseRef.doc('users'), { list: fullPayload.users });
-                batch.set(baseRef.doc('notifications'), { list: fullPayload.notifications });
-                batch.set(baseRef.doc('leavesPermissions'), { list: fullPayload.leavesPermissions });
+            const collections = {
+                departments: fullPayload.departments,
+                employees: fullPayload.employees,
+                shifts: fullPayload.shifts,
+                attendance: fullPayload.attendance,
+                salaryAdjustments: fullPayload.salaryAdjustments,
+                payrollDelivery: fullPayload.payrollDelivery,
+                payrollCycles: fullPayload.payrollCycles,
+                officialHolidays: fullPayload.officialHolidays,
+                users: fullPayload.users,
+                notifications: fullPayload.notifications
+            };
+            let queuedCount = 0;
+            for (const [collectionKey, data] of Object.entries(collections)) {
+                const result = await syncFirebaseCollection(collectionKey, data);
+                if (result.pending) queuedCount++;
+                else applySyncedCollectionData(collectionKey, result.data);
+            }
 
-                await batch.commit();
+            if (firestoreDb) {
+                await firestoreDb.collection('sidi_yaqout_erp').doc('metadata')
+                    .set(fullPayload.metadata, { merge: true });
             } else if (realtimeDb) {
-                await realtimeDb.ref('sidi_yaqout_erp').set(fullPayload);
+                await realtimeDb.ref('sidi_yaqout_erp/metadata').update(fullPayload.metadata);
             }
 
             const nowFormatted = new Date().toLocaleString('ar-EG');
             updateLastSyncDisplay(nowFormatted);
+
+            if (queuedCount > 0) {
+                throw new Error(`تم وضع ${queuedCount} مجموعة في قائمة انتظار المزامنة؛ لن تُعرض العملية كرفع مكتمل.`);
+            }
 
             alert(`🎉 تم رفع كافة بيانات المنظومة إلى Firebase بنجاح!\n\n` +
                   `• عدد الموظفين: ${employees.length}\n` +
@@ -620,7 +925,7 @@
 
             if (firestoreDb) {
                 const baseRef = firestoreDb.collection('sidi_yaqout_erp');
-                const [empSnap, attSnap, deptSnap, shiftSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap, notifSnap, leavesSnap] = await Promise.all([
+                const [empSnap, attSnap, deptSnap, shiftSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap, notifSnap] = await Promise.all([
                     baseRef.doc('employees').get(),
                     baseRef.doc('attendance').get(),
                     baseRef.doc('departments').get(),
@@ -632,8 +937,7 @@
                     baseRef.doc('payrollDelivery').get().catch(() => ({ exists: false })),
                     baseRef.doc('payrollCycles').get().catch(() => ({ exists: false })),
                     baseRef.doc('officialHolidays').get().catch(() => ({ exists: false })),
-                    baseRef.doc('notifications').get().catch(() => ({ exists: false })),
-                    baseRef.doc('leavesPermissions').get().catch(() => ({ exists: false }))
+                    baseRef.doc('notifications').get().catch(() => ({ exists: false }))
                 ]);
 
                 cloudData = {
@@ -646,8 +950,7 @@
                     payrollDelivery: delivSnap.exists ? (delivSnap.data().data || {}) : null,
                     payrollCycles: cycSnap.exists ? (cycSnap.data().data || {}) : null,
                     officialHolidays: holSnap.exists ? (holSnap.data().list || []) : null,
-                    notifications: notifSnap.exists ? (notifSnap.data().list || []) : null,
-                    leavesPermissions: leavesSnap.exists ? (leavesSnap.data().list || []) : null
+                    notifications: notifSnap.exists ? (notifSnap.data().list || []) : null
                 };
             } else if (realtimeDb) {
                 const snapshot = await realtimeDb.ref('sidi_yaqout_erp').once('value');
@@ -686,69 +989,69 @@
 
         if (Array.isArray(cloudData.departments) && cloudData.departments.length > 0) {
             departments = cloudData.departments;
+            setFirebaseSyncBaseline('departments', departments);
             localStorage.setItem('erp_departments', JSON.stringify(departments));
         }
 
         if (Array.isArray(cloudData.employees)) {
             employees = cloudData.employees;
+            setFirebaseSyncBaseline('employees', employees);
             localStorage.setItem('erp_employees_db', JSON.stringify(employees));
             localStorage.setItem('erp_employees', JSON.stringify(employees));
         }
 
         if (Array.isArray(cloudData.shifts)) {
             shifts = cloudData.shifts;
+            setFirebaseSyncBaseline('shifts', shifts);
             localStorage.setItem('erp_shifts', JSON.stringify(shifts));
         }
 
         if (Array.isArray(cloudData.attendance)) {
             attendanceRecords = cloudData.attendance;
+            setFirebaseSyncBaseline('attendance', attendanceRecords);
             localStorage.setItem('erp_attendance_db', JSON.stringify(attendanceRecords));
             localStorage.setItem('erp_attendance', JSON.stringify(attendanceRecords));
         }
 
         if (cloudData.salaryAdjustments && typeof cloudData.salaryAdjustments === 'object') {
             salaryAdjustmentsDb = cloudData.salaryAdjustments;
+            setFirebaseSyncBaseline('salaryAdjustments', salaryAdjustmentsDb);
             localStorage.setItem('erp_salary_adjustments_db', JSON.stringify(salaryAdjustmentsDb));
             localStorage.setItem('erp_salary_adjustments', JSON.stringify(salaryAdjustmentsDb));
         }
 
         if (cloudData.payrollDelivery && typeof cloudData.payrollDelivery === 'object') {
             window.payrollDeliveryDb = cloudData.payrollDelivery;
+            setFirebaseSyncBaseline('payrollDelivery', window.payrollDeliveryDb);
             localStorage.setItem('erp_payroll_delivery_db', JSON.stringify(window.payrollDeliveryDb));
         }
 
         if (cloudData.payrollCycles && typeof cloudData.payrollCycles === 'object') {
             window.savedPayrollSummaryCycles = cloudData.payrollCycles;
+            setFirebaseSyncBaseline('payrollCycles', window.savedPayrollSummaryCycles);
             localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify(window.savedPayrollSummaryCycles));
         }
 
         if (Array.isArray(cloudData.officialHolidays)) {
             officialHolidaysDb = cloudData.officialHolidays;
+            setFirebaseSyncBaseline('officialHolidays', officialHolidaysDb);
             localStorage.setItem('erp_official_holidays_db', JSON.stringify(officialHolidaysDb));
         }
 
         if (Array.isArray(cloudData.users) && cloudData.users.length > 0) {
             usersDb = cloudData.users;
+            setFirebaseSyncBaseline('users', usersDb);
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
         }
 
         if (Array.isArray(cloudData.notifications)) {
+            setFirebaseSyncBaseline('notifications', cloudData.notifications);
             if (typeof window.syncIncomingNotificationsFromRemote === 'function') {
                 window.syncIncomingNotificationsFromRemote(cloudData.notifications, 'firebase-download');
             } else if (typeof notificationsDb !== 'undefined') {
                 notificationsDb = cloudData.notifications;
                 localStorage.setItem('erp_notifications_db', JSON.stringify(notificationsDb));
                 if (typeof updateNotificationBellUI === 'function') updateNotificationBellUI();
-            }
-        }
-
-        if (Array.isArray(cloudData.leavesPermissions)) {
-            if (typeof leavesPermissionsDb !== 'undefined') {
-                leavesPermissionsDb = cloudData.leavesPermissions;
-                localStorage.setItem('erp_leaves_permissions_db', JSON.stringify(leavesPermissionsDb));
-                if (typeof renderLeavesPermissionsScreen === 'function' && document.getElementById('screen-leaves-permissions')?.classList.contains('active')) {
-                    renderLeavesPermissionsScreen();
-                }
             }
         }
 
@@ -764,23 +1067,163 @@
         }
     }
 
+    function applySyncedCollectionData(collectionKey, data) {
+        switch (collectionKey) {
+            case 'employees':
+                employees = data;
+                localStorage.setItem('erp_employees_db', JSON.stringify(data));
+                localStorage.setItem('erp_employees', JSON.stringify(data));
+                populateAllEmployeeDropdowns();
+                renderEmployeesTable();
+                break;
+            case 'attendance':
+                attendanceRecords = data;
+                localStorage.setItem('erp_attendance_db', JSON.stringify(data));
+                localStorage.setItem('erp_attendance', JSON.stringify(data));
+                break;
+            case 'departments':
+                departments = data;
+                localStorage.setItem('erp_departments', JSON.stringify(data));
+                updateAllDeptDropdownsAndFilters();
+                break;
+            case 'shifts':
+                shifts = data;
+                localStorage.setItem('erp_shifts', JSON.stringify(data));
+                break;
+            case 'salaryAdjustments':
+                salaryAdjustmentsDb = data;
+                localStorage.setItem('erp_salary_adjustments_db', JSON.stringify(data));
+                localStorage.setItem('erp_salary_adjustments', JSON.stringify(data));
+                break;
+            case 'payrollDelivery':
+                window.payrollDeliveryDb = data;
+                localStorage.setItem('erp_payroll_delivery_db', JSON.stringify(data));
+                break;
+            case 'payrollCycles':
+                window.savedPayrollSummaryCycles = data;
+                localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify(data));
+                break;
+            case 'officialHolidays':
+                officialHolidaysDb = data;
+                localStorage.setItem('erp_official_holidays_db', JSON.stringify(data));
+                break;
+            case 'users':
+                usersDb = data;
+                localStorage.setItem('erp_users_db', JSON.stringify(data));
+                break;
+            case 'notifications':
+                if (typeof window.syncIncomingNotificationsFromRemote === 'function') {
+                    window.syncIncomingNotificationsFromRemote(data, 'firebase-transaction');
+                } else if (typeof notificationsDb !== 'undefined') {
+                    notificationsDb = data;
+                    localStorage.setItem('erp_notifications_db', JSON.stringify(data));
+                    if (typeof updateNotificationBellUI === 'function') updateNotificationBellUI();
+                }
+                break;
+        }
+        if (typeof refreshActiveScreenData === 'function') refreshActiveScreenData();
+    }
+
+    async function readFirebaseSyncDocument(baseRef, collectionKey, field, emptyValue) {
+        let snapshot;
+        try {
+            snapshot = await baseRef.doc(collectionKey).get();
+        } catch (error) {
+            if (String(error.code || '').endsWith('permission-denied')) {
+                console.info(`No read permission for Firebase collection ${collectionKey}.`);
+                return { exists: false, permissionDenied: true };
+            }
+            throw error;
+        }
+
+        const data = snapshot.exists ? snapshot.data()[field] : emptyValue;
+        if ((field === 'list' && !Array.isArray(data)) ||
+            (field === 'data' && (!data || typeof data !== 'object' || Array.isArray(data)))) {
+            throw new Error(`بيانات مجموعة ${collectionKey} غير صالحة.`);
+        }
+        setFirebaseSyncBaseline(collectionKey, data);
+        return snapshot;
+    }
+
     // مزامنة صامتة تلقائية من السحابة عند تشغيل البرنامج على أي جهاز أو فلاشة أو هاتف جديد
     async function autoSyncFromCloudOnStartup() {
-        if (!isFirebaseConnected) return;
         try {
+            if (currentUser && currentUser.role === 'employee') {
+                employees = [];
+                attendanceRecords = [];
+                salaryAdjustmentsDb = {};
+                officialHolidaysDb = [];
+                departments = [];
+                shifts = [];
+                usersDb = [];
+                window.payrollDeliveryDb = {};
+                window.savedPayrollSummaryCycles = {};
+                [
+                    'erp_employees_db', 'erp_employees', 'erp_attendance_db', 'erp_attendance',
+                    'erp_salary_adjustments_db', 'erp_salary_adjustments', 'erp_departments',
+                    'erp_shifts', 'erp_users_db', 'erp_payroll_delivery_db',
+                    'erp_saved_payroll_cycles_db'
+                ].forEach(key => localStorage.removeItem(key));
+
+                if (!isFirebaseConnected) {
+                    throw new Error('يلزم الاتصال بالخادم لتحميل بيانات الموظف بأمان.');
+                }
+                const response = await authenticatedFetch('/api/employee/self-service-data');
+                const result = await response.json();
+                if (!response.ok || !result.success || !result.employee) {
+                    throw new Error(result.message || 'تعذر تحميل بيانات الموظف.');
+                }
+
+                employees = [result.employee];
+                if (!Array.isArray(result.attendance) ||
+                    !result.salaryAdjustments || typeof result.salaryAdjustments !== 'object' ||
+                    !Array.isArray(result.officialHolidays)) {
+                    throw new Error('استجابة بيانات الموظف غير مكتملة أو غير صالحة.');
+                }
+                attendanceRecords = result.attendance;
+                salaryAdjustmentsDb = result.salaryAdjustments;
+                officialHolidaysDb = result.officialHolidays;
+                departments = [];
+                shifts = [];
+                usersDb = [];
+                window.payrollDeliveryDb = {};
+                window.savedPayrollSummaryCycles = {};
+
+                localStorage.setItem('erp_employees_db', JSON.stringify(employees));
+                localStorage.setItem('erp_employees', JSON.stringify(employees));
+                localStorage.setItem('erp_attendance_db', JSON.stringify(attendanceRecords));
+                localStorage.setItem('erp_attendance', JSON.stringify(attendanceRecords));
+                localStorage.setItem('erp_salary_adjustments_db', JSON.stringify(salaryAdjustmentsDb));
+                localStorage.setItem('erp_salary_adjustments', JSON.stringify(salaryAdjustmentsDb));
+                localStorage.setItem('erp_official_holidays_db', JSON.stringify(officialHolidaysDb));
+                localStorage.setItem('erp_departments', JSON.stringify(departments));
+                localStorage.setItem('erp_shifts', JSON.stringify(shifts));
+                localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
+                localStorage.setItem('erp_payroll_delivery_db', '{}');
+                localStorage.setItem('erp_saved_payroll_cycles_db', '{}');
+                updateAllDeptDropdownsAndFilters();
+                populateAllEmployeeDropdowns();
+                if (typeof refreshActiveScreenData === 'function') refreshActiveScreenData();
+                return;
+            }
+
+            if (!isFirebaseConnected) return;
+
             if (firestoreDb) {
                 const baseRef = firestoreDb.collection('sidi_yaqout_erp');
-                const [empSnap, attSnap, deptSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap, notifSnap, leavesSnap] = await Promise.all([
-                    baseRef.doc('employees').get(),
-                    baseRef.doc('attendance').get(),
-                    baseRef.doc('departments').get(),
-                    baseRef.doc('salaryAdjustments').get(),
-                    baseRef.doc('users').get(),
-                    baseRef.doc('payrollDelivery').get().catch(() => ({ exists: false })),
-                    baseRef.doc('payrollCycles').get().catch(() => ({ exists: false })),
-                    baseRef.doc('officialHolidays').get().catch(() => ({ exists: false })),
-                    baseRef.doc('notifications').get().catch(() => ({ exists: false })),
-                    baseRef.doc('leavesPermissions').get().catch(() => ({ exists: false }))
+                const [empSnap, attSnap, deptSnap, shiftSnap, adjSnap, userSnap, delivSnap, cycSnap, holSnap, notifSnap] = await Promise.all([
+                    readFirebaseSyncDocument(baseRef, 'employees', 'list', []),
+                    readFirebaseSyncDocument(baseRef, 'attendance', 'list', []),
+                    readFirebaseSyncDocument(baseRef, 'departments', 'list', []),
+                    readFirebaseSyncDocument(baseRef, 'shifts', 'list', []),
+                    readFirebaseSyncDocument(baseRef, 'salaryAdjustments', 'data', {}),
+                    currentUser && currentUser.role === 'admin'
+                        ? readFirebaseSyncDocument(baseRef, 'users', 'list', [])
+                        : Promise.resolve({ exists: false, permissionDenied: true }),
+                    readFirebaseSyncDocument(baseRef, 'payrollDelivery', 'data', {}),
+                    readFirebaseSyncDocument(baseRef, 'payrollCycles', 'data', {}),
+                    readFirebaseSyncDocument(baseRef, 'officialHolidays', 'list', []),
+                    readFirebaseSyncDocument(baseRef, 'notifications', 'list', [])
                 ]);
 
                 if (empSnap.exists && Array.isArray(empSnap.data().list) && empSnap.data().list.length > 0) {
@@ -799,6 +1242,11 @@
                     salaryAdjustmentsDb = adjSnap.data().data;
                     localStorage.setItem('erp_salary_adjustments_db', JSON.stringify(salaryAdjustmentsDb));
                     localStorage.setItem('erp_salary_adjustments', JSON.stringify(salaryAdjustmentsDb));
+                }
+
+                if (shiftSnap.exists && Array.isArray(shiftSnap.data().list)) {
+                    shifts = shiftSnap.data().list;
+                    localStorage.setItem('erp_shifts', JSON.stringify(shifts));
                 }
 
                 if (deptSnap.exists && Array.isArray(deptSnap.data().list) && deptSnap.data().list.length > 0) {
@@ -836,13 +1284,6 @@
                     }
                 }
 
-                if (leavesSnap && leavesSnap.exists && Array.isArray(leavesSnap.data().list)) {
-                    if (typeof leavesPermissionsDb !== 'undefined') {
-                        leavesPermissionsDb = leavesSnap.data().list;
-                        localStorage.setItem('erp_leaves_permissions_db', JSON.stringify(leavesPermissionsDb));
-                    }
-                }
-
                 // تحديث كافة الشاشات والقوائم
                 updateAllDeptDropdownsAndFilters();
                 populateAllEmployeeDropdowns();
@@ -860,6 +1301,12 @@
             }
         } catch (e) {
             console.warn('تخطي المزامنة الأولية التلقائية:', e);
+            if (currentUser && currentUser.role === 'employee') {
+                if (typeof showToast === 'function') {
+                    showToast(e.message || 'تعذر تحميل بيانات الموظف من الخادم.', 'error');
+                }
+                throw e;
+            }
         }
     }
 
@@ -885,16 +1332,9 @@
                         return safeUser;
                     });
                 }
-                if (firestoreDb) {
-                    const baseRef = firestoreDb.collection('sidi_yaqout_erp');
-                    if (['salaryAdjustments', 'payrollDelivery', 'payrollCycles'].includes(collectionKey)) {
-                        await baseRef.doc(collectionKey).set({ data: data }, { merge: true });
-                    } else {
-                        await baseRef.doc(collectionKey).set({ list: data }, { merge: true });
-                    }
-                } else if (realtimeDb) {
-                    await realtimeDb.ref(`sidi_yaqout_erp/${collectionKey}`).set(data);
-                }
+                const syncResult = await syncFirebaseCollection(collectionKey, data);
+                if (syncResult.pending) return;
+                applySyncedCollectionData(collectionKey, syncResult.data);
                 const timeStr = new Date().toLocaleTimeString('ar-EG');
                 updateLastSyncDisplay(timeStr);
 
@@ -902,11 +1342,14 @@
                     showToast('☁️ تم الحفظ والمزامنة السحابية مع Firebase بنجاح', 'success');
                 }
             } catch (e) {
-                console.warn(`فشل إرسال التحديث التلقائي للمجموعة (${collectionKey}) إلى Firebase:`, e);
+                console.error(`فشل إرسال التحديث التلقائي للمجموعة (${collectionKey}) إلى Firebase:`, e);
+                if (typeof showToast === 'function') {
+                    showToast(`لم يتم تأكيد مزامنة ${collectionKey}: ${e.message}`, 'error');
+                }
             }
         };
 
-        if (immediate || collectionKey === 'employees' || collectionKey === 'attendance' || collectionKey === 'notifications' || collectionKey === 'leavesPermissions') {
+        if (immediate || collectionKey === 'employees' || collectionKey === 'attendance' || collectionKey === 'notifications') {
             executePush();
         } else {
             firebasePushDebounceTimers[collectionKey] = setTimeout(executePush, 400);
@@ -917,13 +1360,21 @@
     function setupFirebaseRealtimeListeners() {
         detachFirebaseListeners();
 
+        if (currentUser && currentUser.role === 'employee') {
+            return;
+        }
+
         if (firestoreDb) {
             const baseRef = firestoreDb.collection('sidi_yaqout_erp');
 
             // 1. مراقبة الموظفين
-            const unsubEmp = baseRef.doc('employees').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubEmp = baseRef.doc('employees').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteEmployees = d && Array.isArray(d.list) ? d.list : [];
+                setFirebaseSyncBaseline('employees', remoteEmployees);
+                if (await hasPendingFirebaseSync('employees')) return;
+                if (!doc.exists) return;
                 if (d && Array.isArray(d.list) && JSON.stringify(d.list) !== JSON.stringify(employees)) {
                     employees = d.list;
                     localStorage.setItem('erp_employees_db', JSON.stringify(employees));
@@ -937,9 +1388,13 @@
             activeFirebaseListeners.push(unsubEmp);
 
             // 2. مراقبة الحضور والانصراف
-            const unsubAtt = baseRef.doc('attendance').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubAtt = baseRef.doc('attendance').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteAttendance = d && Array.isArray(d.list) ? d.list : [];
+                setFirebaseSyncBaseline('attendance', remoteAttendance);
+                if (await hasPendingFirebaseSync('attendance')) return;
+                if (!doc.exists) return;
                 if (d && Array.isArray(d.list) && JSON.stringify(d.list) !== JSON.stringify(attendanceRecords)) {
                     attendanceRecords = d.list;
                     localStorage.setItem('erp_attendance_db', JSON.stringify(attendanceRecords));
@@ -951,9 +1406,13 @@
             activeFirebaseListeners.push(unsubAtt);
 
             // 3. مراقبة التسويات المالية (السلف والمكافآت والخصومات)
-            const unsubAdj = baseRef.doc('salaryAdjustments').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubAdj = baseRef.doc('salaryAdjustments').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteAdjustments = d && d.data && typeof d.data === 'object' ? d.data : {};
+                setFirebaseSyncBaseline('salaryAdjustments', remoteAdjustments);
+                if (await hasPendingFirebaseSync('salaryAdjustments')) return;
+                if (!doc.exists) return;
                 if (d && d.data && JSON.stringify(d.data) !== JSON.stringify(salaryAdjustmentsDb)) {
                     salaryAdjustmentsDb = d.data;
                     localStorage.setItem('erp_salary_adjustments_db', JSON.stringify(salaryAdjustmentsDb));
@@ -965,9 +1424,13 @@
             activeFirebaseListeners.push(unsubAdj);
 
             // 4. مراقبة كشوفات تسليم الرواتب
-            const unsubDeliv = baseRef.doc('payrollDelivery').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubDeliv = baseRef.doc('payrollDelivery').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteDelivery = d && d.data && typeof d.data === 'object' ? d.data : {};
+                setFirebaseSyncBaseline('payrollDelivery', remoteDelivery);
+                if (await hasPendingFirebaseSync('payrollDelivery')) return;
+                if (!doc.exists) return;
                 if (d && d.data && JSON.stringify(d.data) !== JSON.stringify(window.payrollDeliveryDb)) {
                     window.payrollDeliveryDb = d.data;
                     localStorage.setItem('erp_payroll_delivery_db', JSON.stringify(window.payrollDeliveryDb));
@@ -977,9 +1440,13 @@
             activeFirebaseListeners.push(unsubDeliv);
 
             // 5. مراقبة دورات الرواتب المغلقة
-            const unsubCyc = baseRef.doc('payrollCycles').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubCyc = baseRef.doc('payrollCycles').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteCycles = d && d.data && typeof d.data === 'object' ? d.data : {};
+                setFirebaseSyncBaseline('payrollCycles', remoteCycles);
+                if (await hasPendingFirebaseSync('payrollCycles')) return;
+                if (!doc.exists) return;
                 if (d && d.data && JSON.stringify(d.data) !== JSON.stringify(window.savedPayrollSummaryCycles)) {
                     window.savedPayrollSummaryCycles = d.data;
                     localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify(window.savedPayrollSummaryCycles));
@@ -989,9 +1456,13 @@
             activeFirebaseListeners.push(unsubCyc);
 
             // 6. مراقبة الأقسام
-            const unsubDept = baseRef.doc('departments').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubDept = baseRef.doc('departments').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteDepartments = d && Array.isArray(d.list) ? d.list : [];
+                setFirebaseSyncBaseline('departments', remoteDepartments);
+                if (await hasPendingFirebaseSync('departments')) return;
+                if (!doc.exists) return;
                 if (d && Array.isArray(d.list) && JSON.stringify(d.list) !== JSON.stringify(departments)) {
                     departments = d.list;
                     localStorage.setItem('erp_departments', JSON.stringify(departments));
@@ -1001,9 +1472,13 @@
             activeFirebaseListeners.push(unsubDept);
 
             // 7. مراقبة الإجازات الرسمية
-            const unsubHol = baseRef.doc('officialHolidays').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubHol = baseRef.doc('officialHolidays').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteHolidays = d && Array.isArray(d.list) ? d.list : [];
+                setFirebaseSyncBaseline('officialHolidays', remoteHolidays);
+                if (await hasPendingFirebaseSync('officialHolidays')) return;
+                if (!doc.exists) return;
                 if (d && Array.isArray(d.list) && JSON.stringify(d.list) !== JSON.stringify(officialHolidaysDb)) {
                     officialHolidaysDb = d.list;
                     localStorage.setItem('erp_official_holidays_db', JSON.stringify(officialHolidaysDb));
@@ -1014,9 +1489,13 @@
 
             // 8. مراقبة المستخدمين والصلاحيات
             if (currentUser && currentUser.role === 'admin') {
-                const unsubUsers = baseRef.doc('users').onSnapshot(doc => {
-                    if (isPerformingRemoteSync || !doc.exists) return;
-                    const d = doc.data();
+                const unsubUsers = baseRef.doc('users').onSnapshot(async doc => {
+                    if (isPerformingRemoteSync) return;
+                    const d = doc.exists ? doc.data() : null;
+                    const remoteUsers = d && Array.isArray(d.list) ? d.list : [];
+                    setFirebaseSyncBaseline('users', remoteUsers);
+                    if (await hasPendingFirebaseSync('users')) return;
+                    if (!doc.exists) return;
                     if (d && Array.isArray(d.list) && JSON.stringify(d.list) !== JSON.stringify(usersDb)) {
                         usersDb = d.list;
                         localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
@@ -1029,9 +1508,13 @@
             }
 
             // 9. مراقبة الإشعارات والتنبيهات المباشرة بين الديسكتوب والموبايل
-            const unsubNotif = baseRef.doc('notifications').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
+            const unsubNotif = baseRef.doc('notifications').onSnapshot(async doc => {
+                if (isPerformingRemoteSync) return;
+                const d = doc.exists ? doc.data() : null;
+                const remoteNotifications = d && Array.isArray(d.list) ? d.list : [];
+                setFirebaseSyncBaseline('notifications', remoteNotifications);
+                if (await hasPendingFirebaseSync('notifications')) return;
+                if (!doc.exists) return;
                 if (d && Array.isArray(d.list)) {
                     if (typeof window.syncIncomingNotificationsFromRemote === 'function') {
                         window.syncIncomingNotificationsFromRemote(d.list, 'firebase-snapshot');
@@ -1043,22 +1526,6 @@
                 }
             }, err => console.warn('Firestore Notifications Listener error:', err));
             activeFirebaseListeners.push(unsubNotif);
-
-            // 10. مراقبة طلبات الإجازات والأذونات
-            const unsubLeaves = baseRef.doc('leavesPermissions').onSnapshot(doc => {
-                if (isPerformingRemoteSync || !doc.exists) return;
-                const d = doc.data();
-                if (d && Array.isArray(d.list) && typeof leavesPermissionsDb !== 'undefined') {
-                    if (JSON.stringify(d.list) !== JSON.stringify(leavesPermissionsDb)) {
-                        leavesPermissionsDb = d.list;
-                        localStorage.setItem('erp_leaves_permissions_db', JSON.stringify(leavesPermissionsDb));
-                        if (typeof renderLeavesPermissionsScreen === 'function' && document.getElementById('screen-leaves-permissions')?.classList.contains('active')) {
-                            renderLeavesPermissionsScreen();
-                        }
-                    }
-                }
-            }, err => console.warn('Firestore Leaves Listener error:', err));
-            activeFirebaseListeners.push(unsubLeaves);
 
             isRealtimeSyncActive = true;
         } else if (realtimeDb) {

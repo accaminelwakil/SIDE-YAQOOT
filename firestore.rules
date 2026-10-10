@@ -12,6 +12,13 @@ service cloud.firestore {
            request.auth.token.screenAccess[screen] in ['view', 'edit'])
         );
       }
+      function canViewSensitive(screen) {
+        return canUseApp() && request.auth.token.role != 'employee' && (
+          request.auth.token.role == 'admin' ||
+          (request.auth.token.screenAccess != null &&
+           request.auth.token.screenAccess[screen] in ['view', 'edit'])
+        );
+      }
       function canEdit(screen) {
         return canUseApp() && (
           request.auth.token.role == 'admin' ||
@@ -21,23 +28,62 @@ service cloud.firestore {
       }
 
       allow read, write: if false;
-      allow read: if canUseApp() && document != 'users' && document != '_system_ping';
-      allow read: if document == 'employees' && canView('screen-employees');
-      allow write: if document == 'employees' && canEdit('screen-employees');
-      allow read: if document == 'attendance' && canView('screen-attendance');
-      allow write: if document == 'attendance' && canEdit('screen-attendance');
-      allow read: if document == 'salaryAdjustments' && canView('screen-salary-adjustments');
-      allow write: if document == 'salaryAdjustments' && canEdit('screen-salary-adjustments');
+      allow read: if document == 'employees' &&
+        (
+          canViewSensitive('screen-employees') ||
+          canViewSensitive('screen-attendance') ||
+          canViewSensitive('screen-single-sarki') ||
+          canViewSensitive('screen-bulk-payslips') ||
+          canViewSensitive('screen-payroll-summary') ||
+          canViewSensitive('screen-payroll-delivery') ||
+          canViewSensitive('screen-emp-general-report') ||
+          canViewSensitive('screen-totals-report') ||
+          canViewSensitive('screen-punches-payroll') ||
+          canViewSensitive('screen-attendance-comparison')
+        );
+      allow write: if false;
+      allow read: if document == 'attendance' && (
+        canViewSensitive('screen-attendance') ||
+        canViewSensitive('screen-single-sarki') ||
+        canViewSensitive('screen-bulk-payslips') ||
+        canViewSensitive('screen-payroll-summary') ||
+        canViewSensitive('screen-emp-general-report') ||
+        canViewSensitive('screen-totals-report') ||
+        canViewSensitive('screen-punches-payroll') ||
+        canViewSensitive('screen-attendance-comparison')
+      );
+      allow write: if false;
+      allow read: if document == 'salaryAdjustments' && (
+        canViewSensitive('screen-salary-adjustments') ||
+        canViewSensitive('screen-single-sarki') ||
+        canViewSensitive('screen-bulk-payslips') ||
+        canViewSensitive('screen-payroll-summary') ||
+        canViewSensitive('screen-payroll-delivery') ||
+        canViewSensitive('screen-emp-general-report') ||
+        canViewSensitive('screen-totals-report')
+      );
+      allow write: if false;
       allow read: if document == 'payrollDelivery' && canView('screen-payroll-delivery');
-      allow write: if document == 'payrollDelivery' && canEdit('screen-payroll-delivery');
       allow read: if document == 'payrollCycles' && canView('screen-payroll-summary');
-      allow write: if document == 'payrollCycles' && canEdit('screen-payroll-summary');
-      allow read, write: if document == 'departments' && canEdit('screen-employees');
-      allow read: if document == 'officialHolidays' && canView('screen-attendance');
-      allow write: if document == 'officialHolidays' && canEdit('screen-attendance');
-      allow read, write: if document == 'users' && canUseApp() && request.auth.token.role == 'admin';
-      allow read, write: if document == 'notifications' && canUseApp();
-      allow read, write: if document == 'leavesPermissions' && canView('screen-leaves-permissions');
+      allow read: if document == 'departments' &&
+        (canView('screen-employees') || canView('screen-leaves-permissions'));
+      allow write: if false;
+      allow read: if document == 'shifts' && (
+        canViewSensitive('screen-attendance') ||
+        canViewSensitive('screen-single-sarki') ||
+        canViewSensitive('screen-bulk-payslips') ||
+        canViewSensitive('screen-payroll-summary')
+      );
+      allow read: if document == 'officialHolidays' && (
+        canView('screen-attendance') ||
+        canView('screen-employee-sarki') ||
+        canView('screen-single-sarki') ||
+        canView('screen-bulk-payslips') ||
+        canView('screen-payroll-summary') ||
+        canView('screen-punches-payroll')
+      );
+      allow read: if document == 'users' && canUseApp() && request.auth.token.role == 'admin';
+      allow read: if document == 'notifications' && canUseApp();
       allow read, write: if document == 'metadata' && canUseApp() && request.auth.token.role == 'admin';
       allow write: if document == '_system_ping' && canUseApp() && request.auth.token.role == 'admin';
     }

@@ -6,6 +6,7 @@
 
 (function() {
     let currentPunchesList = [];
+    let punchLoadGeneration = 0;
     let punchPayrollMode = localStorage.getItem('erp_payroll_calc_mode') || 'manual'; // 'manual' or 'punch'
 
     // تهيئة الشاشة
@@ -71,21 +72,48 @@
         }
     }
 
-    // جلب حركات البصمات من السيرفر أو التخزين المحلي
+    // Load only the selected payroll cycle, following all server pages.
     async function loadAllAttendancePunchesData() {
-        let punches = [];
-        try {
-            const resp = await window.authenticatedFetch('/api/attendance/punches');
-            if (resp.ok) {
-                const data = await resp.json();
-                punches = data.punches || [];
-            }
-        } catch (e) {
-            console.warn('[PunchesPayroll] Backend fetch failed, reading localStorage fallback');
+        const generation = ++punchLoadGeneration;
+        const cycleSelect = document.getElementById('punch-payroll-cycle-select');
+        const [startDate, endDate] = cycleSelect && cycleSelect.value ? cycleSelect.value.split('|') : [];
+        if (!startDate || !endDate) {
+            currentPunchesList = [];
+            calculateAndRenderPunchesPayroll();
+            return;
         }
 
-        if (!punches || punches.length === 0) {
-            punches = JSON.parse(localStorage.getItem('erp_smart_punches_db') || '[]');
+        const punches = [];
+        try {
+            let cursor = null;
+            let hasMore = true;
+            while (hasMore) {
+                if (generation !== punchLoadGeneration) return;
+                const params = new URLSearchParams({ startDate, endDate, limit: '500' });
+                if (cursor) params.set('cursor', cursor);
+                const resp = await window.authenticatedFetch(`/api/attendance/punches?${params.toString()}`);
+                const data = await resp.json();
+                if (!resp.ok || !data.success || !Array.isArray(data.punches)) {
+                    throw new Error(data.message || 'تعذر تحميل سجل البصمات من الخادم.');
+                }
+                punches.push(...data.punches);
+                hasMore = data.hasMore === true;
+                cursor = data.nextCursor || null;
+                if (hasMore && !cursor) {
+                    throw new Error('انتهت صفحة البصمات دون مؤشر للصفحة التالية.');
+                }
+            }
+            if (generation !== punchLoadGeneration) return;
+            window.smartPunchesList = punches;
+        } catch (e) {
+            if (generation !== punchLoadGeneration) return;
+            console.error('[PunchesPayroll] Backend fetch failed.', e);
+            if (typeof showToast === 'function') {
+                showToast(e.message || 'تعذر تحميل سجل البصمات من الخادم؛ لم يتم استخدام نسخة محلية قد تكون ناقصة.', 'error');
+            }
+            currentPunchesList = [];
+            calculateAndRenderPunchesPayroll();
+            return;
         }
 
         currentPunchesList = punches;

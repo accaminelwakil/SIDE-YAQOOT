@@ -13,40 +13,60 @@
         ".write": "auth != null && auth.token.passwordChangeRequired != true && auth.token.role == 'admin'"
       },
       "employees": {
-        ".read": "auth != null && auth.token.passwordChangeRequired != true",
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && auth.token.role != 'employee' && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-employees'] != null || auth.token.screenAccess['screen-attendance'] != null || auth.token.screenAccess['screen-single-sarki'] != null || auth.token.screenAccess['screen-bulk-payslips'] != null || auth.token.screenAccess['screen-payroll-summary'] != null || auth.token.screenAccess['screen-payroll-delivery'] != null || auth.token.screenAccess['screen-emp-general-report'] != null || auth.token.screenAccess['screen-totals-report'] != null || auth.token.screenAccess['screen-punches-payroll'] != null || auth.token.screenAccess['screen-attendance-comparison'] != null))",
         ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-employees'] == 'edit')"
       },
       "departments": {
-        ".read": "auth != null && auth.token.passwordChangeRequired != true",
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-employees'] != null || auth.token.screenAccess['screen-leaves-permissions'] != null))",
         ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-employees'] == 'edit')"
       },
       "attendance": {
-        ".read": "auth != null && auth.token.passwordChangeRequired != true",
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && auth.token.role != 'employee' && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-attendance'] != null || auth.token.screenAccess['screen-single-sarki'] != null || auth.token.screenAccess['screen-bulk-payslips'] != null || auth.token.screenAccess['screen-payroll-summary'] != null || auth.token.screenAccess['screen-emp-general-report'] != null || auth.token.screenAccess['screen-totals-report'] != null || auth.token.screenAccess['screen-punches-payroll'] != null || auth.token.screenAccess['screen-attendance-comparison'] != null))",
         ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-attendance'] == 'edit')"
       },
       "salaryAdjustments": {
-        ".read": "auth != null && auth.token.passwordChangeRequired != true",
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && auth.token.role != 'employee' && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-salary-adjustments'] != null || auth.token.screenAccess['screen-single-sarki'] != null || auth.token.screenAccess['screen-bulk-payslips'] != null || auth.token.screenAccess['screen-payroll-summary'] != null || auth.token.screenAccess['screen-payroll-delivery'] != null || auth.token.screenAccess['screen-emp-general-report'] != null || auth.token.screenAccess['screen-totals-report'] != null))",
         ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-salary-adjustments'] == 'edit')"
       },
       "payrollDelivery": {
-        ".read": "auth != null && auth.token.passwordChangeRequired != true",
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-delivery'] != null)",
         ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-delivery'] == 'edit')"
       },
       "payrollCycles": {
-        ".read": "auth != null && auth.token.passwordChangeRequired != true",
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-summary'] != null)",
         ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-summary'] == 'edit')"
       },
       "officialHolidays": {
-        ".read": "auth != null",
-        ".write": "auth != null && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-attendance'] == 'edit')"
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-attendance'] != null || auth.token.screenAccess['screen-employee-sarki'] != null || auth.token.screenAccess['screen-single-sarki'] != null || auth.token.screenAccess['screen-bulk-payslips'] != null || auth.token.screenAccess['screen-payroll-summary'] != null || auth.token.screenAccess['screen-punches-payroll'] != null))",
+        ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-attendance'] == 'edit')"
+      },
+      "shifts": {
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && auth.token.role != 'employee' && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-attendance'] != null || auth.token.screenAccess['screen-single-sarki'] != null || auth.token.screenAccess['screen-bulk-payslips'] != null || auth.token.screenAccess['screen-payroll-summary'] != null || auth.token.screenAccess['screen-punches-payroll'] != null))",
+        ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-attendance'] == 'edit')"
+      },
+      "salaryAdjustments": {
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && auth.token.role != 'employee' && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-salary-adjustments'] != null || auth.token.screenAccess['screen-single-sarki'] != null || auth.token.screenAccess['screen-bulk-payslips'] != null || auth.token.screenAccess['screen-payroll-summary'] != null || auth.token.screenAccess['screen-payroll-delivery'] != null || auth.token.screenAccess['screen-emp-general-report'] != null || auth.token.screenAccess['screen-totals-report'] != null))",
+        ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-salary-adjustments'] == 'edit')"
+      },
+      "payrollDelivery": {
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-delivery'] != null)",
+        ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-delivery'] == 'edit')"
+      },
+      "payrollCycles": {
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-summary'] != null)",
+        ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-payroll-summary'] == 'edit')"
+      },
+      "officialHolidays": {
+        ".read": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && (auth.token.screenAccess['screen-attendance'] != null || auth.token.screenAccess['screen-employee-sarki'] != null || auth.token.screenAccess['screen-single-sarki'] != null || auth.token.screenAccess['screen-bulk-payslips'] != null || auth.token.screenAccess['screen-payroll-summary'] != null || auth.token.screenAccess['screen-punches-payroll'] != null))",
+        ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-attendance'] == 'edit')"
       },
       "notifications": {
         ".read": "auth != null && auth.token.passwordChangeRequired != true",
         ".write": "auth != null && auth.token.passwordChangeRequired != true"
       },
       "leavesPermissions": {
-        ".read": "auth != null && auth.token.passwordChangeRequired != true",
-        ".write": "auth != null && auth.token.passwordChangeRequired != true && (auth.token.role == 'admin' || auth.token.screenAccess != null && auth.token.screenAccess['screen-leaves-permissions'] in ['view', 'edit'])"
+        ".read": false,
+        ".write": false
       },
       "_system_ping": {
         ".read": "auth != null && auth.token.role == 'admin'",

@@ -123,14 +123,16 @@
         let punches = [];
         try {
             const resp = await window.authenticatedFetch('/api/attendance/punches');
-            if (resp.ok) {
-                const data = await resp.json();
-                punches = data.punches || [];
+            const data = await resp.json();
+            if (!resp.ok || !data.success || !Array.isArray(data.punches)) {
+                throw new Error(data.message || 'تعذر تحميل سجل البصمات من الخادم.');
             }
+            punches = data.punches;
         } catch (e) {
-            console.warn('[Comparison] Backend punches fetch failed, reading localStorage');
-        }
-        if (!punches || punches.length === 0) {
+            console.warn('[Comparison] Backend punch history unavailable, reading legacy local cache.', e);
+            if (typeof showToast === 'function') {
+                showToast('تعذر تحميل سجل البصمات الكامل من الخادم؛ البيانات المحلية قد تكون قديمة أو ناقصة.', 'error');
+            }
             punches = JSON.parse(localStorage.getItem('erp_smart_punches_db') || '[]');
         }
 

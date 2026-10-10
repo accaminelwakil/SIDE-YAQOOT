@@ -1,8 +1,10 @@
 from flask import Flask, send_from_directory
 from functools import wraps
 import os
+import copy
 import threading
 import time
+import uuid
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
@@ -60,6 +62,8 @@ def index():
 import json
 import math
 import datetime
+import base64
+import glob
 from flask import request, jsonify, g, abort
 
 _firebase_admin = None
@@ -521,6 +525,12 @@ def auth_manage_user_api(username):
 
 CONFIG_FILE = os.path.join(BASE_DIR, "geofence_config.json")
 PUNCHES_FILE = os.path.join(BASE_DIR, "attendance_punches.json")
+RAILWAY_VOLUME_MOUNT_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+PUNCHES_DATA_DIR = RAILWAY_VOLUME_MOUNT_PATH or BASE_DIR
+PUNCHES_LOG_FILE = os.path.join(PUNCHES_DATA_DIR, "attendance_punches.jsonl")
+PUNCHES_PARTITION_DIR = os.path.join(PUNCHES_DATA_DIR, "punches_by_month")
+PUNCHES_LOCK = threading.Lock()
+LEAVES_PERMISSIONS_PATH = ("sidi_yaqout_erp", "leavesPermissions")
 
 DEFAULT_GEOFENCE_CONFIG = {
     "latitude": 31.2001,
@@ -562,25 +572,157 @@ def calculate_haversine_distance(lat1, lon1, lat2, lon2):
 
 
 def load_punches():
-    if os.path.exists(PUNCHES_FILE):
-        try:
+    punches = []
+    with PUNCHES_LOCK:
+        if os.path.exists(PUNCHES_FILE):
             with open(PUNCHES_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return []
+                legacy_punches = json.load(f)
+            if not isinstance(legacy_punches, list) or any(not isinstance(item, dict) for item in legacy_punches):
+                raise ValueError("Legacy attendance punch file has an invalid format")
+            punches.extend(legacy_punches)
+
+        if os.path.exists(PUNCHES_LOG_FILE):
+            with open(PUNCHES_LOG_FILE, "r", encoding="utf-8") as f:
+                for line_number, line in enumerate(f, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        punch = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(f"Invalid punch log entry at line {line_number}") from exc
+                    if not isinstance(punch, dict):
+                        raise ValueError(f"Invalid punch log entry at line {line_number}")
+                    punches.append(punch)
+        for file_path in sorted(glob.glob(os.path.join(PUNCHES_PARTITION_DIR, "*.jsonl"))):
+            punches.extend(read_punch_jsonl(file_path))
+
+    return sorted(
+        punches,
+        key=lambda punch: str(punch.get("timestamp") or f"{punch.get('date', '')}T{punch.get('time', '')}"),
+        reverse=True
+    )
 
 
 def save_punch(punch_record):
+    punch_date = str(punch_record.get("date") or "")
+    if not valid_iso_date(punch_date):
+        raise ValueError("Attendance punch has an invalid date")
+    os.makedirs(PUNCHES_PARTITION_DIR, exist_ok=True)
+    serialized = json.dumps(punch_record, ensure_ascii=False, separators=(",", ":"))
+    with PUNCHES_LOCK:
+        path = os.path.join(PUNCHES_PARTITION_DIR, f"{punch_date[:7]}.jsonl")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(serialized + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+
+def read_punch_jsonl(file_path):
+    punches = []
+    with open(file_path, "r", encoding="utf-8") as file:
+        for line_number, line in enumerate(file, start=1):
+            if not line.strip():
+                continue
+            try:
+                punch = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid punch log entry in {os.path.basename(file_path)} at line {line_number}") from exc
+            if not isinstance(punch, dict):
+                raise ValueError(f"Invalid punch log entry in {os.path.basename(file_path)} at line {line_number}")
+            punches.append(punch)
+    return punches
+
+
+def punch_date(punch):
+    value = str(punch.get("date") or (str(punch.get("timestamp") or "")[:10]))
+    return value if valid_iso_date(value) else ""
+
+
+def punch_months_between(start_date, end_date):
+    current = datetime.date.fromisoformat(start_date).replace(day=1)
+    last = datetime.date.fromisoformat(end_date).replace(day=1)
+    months = []
+    while current <= last:
+        months.append(current.strftime("%Y-%m"))
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+    return months
+
+
+def encode_punch_cursor(punch):
+    key = [
+        str(punch.get("timestamp") or f"{punch_date(punch)}T{punch.get('time', '')}"),
+        str(punch.get("id") or "")
+    ]
+    return base64.urlsafe_b64encode(json.dumps(key, separators=(",", ":")).encode("utf-8")).decode("ascii")
+
+
+def decode_punch_cursor(cursor):
+    if not cursor:
+        return None
     try:
-        punches = load_punches()
-        punches.insert(0, punch_record)
-        if len(punches) > 500:
-            punches = punches[:500]
-        with open(PUNCHES_FILE, "w", encoding="utf-8") as f:
-            json.dump(punches, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Error saving punch: {e}")
+        value = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8"))
+        if not isinstance(value, list) or len(value) != 2 or not all(isinstance(item, str) for item in value):
+            raise ValueError
+        return tuple(value)
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        raise ValueError("Invalid attendance punch cursor")
+
+
+def load_punches_page(start_date=None, end_date=None, limit=200, cursor=None, employee_id=None):
+    if bool(start_date) != bool(end_date):
+        raise ValueError("Both startDate and endDate are required")
+    if start_date and (not valid_iso_date(start_date) or not valid_iso_date(end_date) or end_date < start_date):
+        raise ValueError("Invalid attendance punch date range")
+
+    after = decode_punch_cursor(cursor)
+    punches = []
+    with PUNCHES_LOCK:
+        if os.path.exists(PUNCHES_FILE):
+            with open(PUNCHES_FILE, "r", encoding="utf-8") as file:
+                legacy_punches = json.load(file)
+            if not isinstance(legacy_punches, list) or any(not isinstance(item, dict) for item in legacy_punches):
+                raise ValueError("Legacy attendance punch file has an invalid format")
+            punches.extend(legacy_punches)
+
+        if os.path.exists(PUNCHES_LOG_FILE):
+            punches.extend(read_punch_jsonl(PUNCHES_LOG_FILE))
+
+        if start_date:
+            month_names = punch_months_between(start_date, end_date)
+        else:
+            month_names = [
+                os.path.basename(path)[:-6]
+                for path in glob.glob(os.path.join(PUNCHES_PARTITION_DIR, "????-??.jsonl"))
+            ]
+        for month in month_names:
+            path = os.path.join(PUNCHES_PARTITION_DIR, f"{month}.jsonl")
+            if os.path.exists(path):
+                punches.extend(read_punch_jsonl(path))
+
+    filtered = []
+    for punch in punches:
+        record_date = punch_date(punch)
+        if start_date and not start_date <= record_date <= end_date:
+            continue
+        if employee_id and str(punch.get("empId", "")) != str(employee_id):
+            continue
+        key = (str(punch.get("timestamp") or f"{record_date}T{punch.get('time', '')}"), str(punch.get("id") or ""))
+        if after and key >= after:
+            continue
+        filtered.append((key, punch))
+
+    filtered.sort(key=lambda item: item[0], reverse=True)
+    page = filtered[:limit + 1]
+    has_more = len(page) > limit
+    records = [item[1] for item in page[:limit]]
+    return {
+        "punches": records,
+        "hasMore": has_more,
+        "nextCursor": encode_punch_cursor(records[-1]) if has_more and records else None
+    }
 
 
 @app.route("/api/geofence/config", methods=["GET", "POST"])
@@ -627,6 +769,13 @@ def attendance_check_in_api():
         emp_name = str(data.get("empName", "موظف")).strip()[:120]
     if not emp_id:
         return jsonify({"success": False, "message": "حساب المستخدم غير مرتبط برقم موظف."}), 403
+    if os.environ.get("RAILWAY_ENVIRONMENT") and not RAILWAY_VOLUME_MOUNT_PATH:
+        app.logger.error("Punch storage is not durable: Railway Volume mount path is missing")
+        return jsonify({
+            "success": False,
+            "status": "PUNCH_STORAGE_UNAVAILABLE",
+            "message": "تسجيل البصمات متوقف مؤقتاً لحماية السجل؛ يلزم ربط وحدة تخزين دائمة بالخادم."
+        }), 503
     punch_type = str(data.get("type", "in")).strip().lower()  # 'in' or 'out'
     if punch_type not in ("in", "out"):
         return jsonify({"success": False, "message": "نوع حركة الحضور غير صالح."}), 400
@@ -656,7 +805,7 @@ def attendance_check_in_api():
 
     now = datetime.datetime.now()
     punch_record = {
-        "id": f"punch_{int(now.timestamp() * 1000)}",
+        "id": f"punch_{uuid.uuid4().hex}",
         "empId": emp_id,
         "empName": emp_name,
         "type": punch_type,
@@ -671,7 +820,11 @@ def attendance_check_in_api():
         "time": now.strftime("%H:%M:%S"),
         "timestamp": now.isoformat()
     }
-    save_punch(punch_record)
+    try:
+        save_punch(punch_record)
+    except (OSError, TypeError, ValueError):
+        app.logger.exception("Failed to persist attendance punch")
+        return jsonify({"success": False, "message": "تعذر حفظ حركة البصمة. حاول مرة أخرى أو أبلغ مدير النظام."}), 500
 
     if is_accepted:
         return jsonify({
@@ -695,14 +848,583 @@ def attendance_check_in_api():
 @app.route("/api/attendance/punches", methods=["GET"])
 @require_firebase_auth()
 def attendance_punches_api():
-    punches = load_punches()
-    if g.auth_claims.get("role") == "employee":
-        employee_id = str(g.auth_claims.get("empId") or "")
-        punches = [punch for punch in punches if employee_id and str(punch.get("empId", "")) == employee_id]
-    return jsonify({
-        "success": True,
-        "punches": punches
-    })
+    claims = g.auth_claims
+    screen_access = claims.get("screenAccess") or {}
+    is_admin = claims.get("role") == "admin"
+    is_employee = claims.get("role") == "employee"
+    can_view_all = is_admin or any(
+        screen_access.get(screen) in ("view", "edit")
+        for screen in ("screen-attendance", "screen-punches-payroll")
+    )
+    if not is_employee and not can_view_all:
+        return jsonify({"success": False, "message": "ليست لديك صلاحية عرض سجل البصمات."}), 403
+    employee_id = str(claims.get("empId") or "").strip()
+    if is_employee and not is_admin and not employee_id:
+        return jsonify({"success": False, "message": "حساب المستخدم غير مرتبط برقم موظف."}), 403
+    start_date = request.args.get("startDate")
+    end_date = request.args.get("endDate")
+    if bool(start_date) != bool(end_date) or (
+        start_date and (not valid_iso_date(start_date) or not valid_iso_date(end_date) or end_date < start_date)
+    ):
+        return jsonify({"success": False, "message": "نطاق تواريخ سجل البصمات غير صالح."}), 400
+    cursor = request.args.get("cursor")
+    try:
+        decode_punch_cursor(cursor)
+    except ValueError:
+        return jsonify({"success": False, "message": "مؤشر صفحة سجل البصمات غير صالح."}), 400
+    try:
+        try:
+            limit = int(request.args.get("limit", "200"))
+        except ValueError:
+            return jsonify({"success": False, "message": "حجم الصفحة غير صالح."}), 400
+        if not 1 <= limit <= 500:
+            return jsonify({"success": False, "message": "حجم الصفحة يجب أن يكون بين 1 و500."}), 400
+        page = load_punches_page(
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            cursor=cursor,
+            employee_id=employee_id if is_employee and not is_admin else None
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        app.logger.exception("Failed to read attendance punch history")
+        return jsonify({"success": False, "message": "تعذر قراءة سجل البصمات؛ لم يتم تجاهل أي بيانات."}), 500
+    return jsonify({"success": True, **page})
+
+
+def build_employee_self_service_data(employee_id, employees, attendance, adjustments, holidays):
+    employee_id = str(employee_id)
+    if (
+        not isinstance(employees, list) or
+        not isinstance(attendance, list) or
+        not isinstance(adjustments, dict) or
+        not isinstance(holidays, list)
+    ):
+        raise ValueError("Stored employee self-service data is invalid")
+    employee = next(
+        (
+            entry for entry in employees
+            if isinstance(entry, dict) and str(entry.get("id") or "") == employee_id
+        ),
+        None
+    )
+    if not employee:
+        return None
+
+    own_attendance = [
+        entry for entry in attendance
+        if isinstance(entry, dict) and str(entry.get("empId") or "") == employee_id
+    ]
+    own_adjustments = {
+        str(period): {employee_id: records[employee_id]}
+        for period, records in adjustments.items()
+        if isinstance(records, dict) and employee_id in records
+    }
+    visible_employee = {
+        key: employee[key]
+        for key in ("id", "name", "code", "job", "shiftHours", "basicSalary", "status", "offDay")
+        if key in employee
+    }
+    return {
+        "employee": visible_employee,
+        "attendance": own_attendance,
+        "salaryAdjustments": own_adjustments,
+        "officialHolidays": holidays
+    }
+
+
+_SYNC_MISSING = object()
+
+
+class SyncMergeConflict(Exception):
+    def __init__(self, path):
+        super().__init__(path)
+        self.path = path
+
+
+def _sync_value_equal(left, right):
+    if left is _SYNC_MISSING or right is _SYNC_MISSING:
+        return left is right
+    return left == right
+
+
+def _sync_copy(value):
+    return value if value is _SYNC_MISSING else copy.deepcopy(value)
+
+
+def _merge_sync_values(base, desired, latest, path="data"):
+    if _sync_value_equal(desired, base):
+        return _sync_copy(latest)
+    if _sync_value_equal(latest, base):
+        return _sync_copy(desired)
+    if _sync_value_equal(desired, latest):
+        return _sync_copy(latest)
+
+    if all(isinstance(value, dict) or value is _SYNC_MISSING for value in (base, desired, latest)):
+        base_map = {} if base is _SYNC_MISSING else base
+        desired_map = {} if desired is _SYNC_MISSING else desired
+        latest_map = {} if latest is _SYNC_MISSING else latest
+        merged = {}
+        for key in base_map.keys() | desired_map.keys() | latest_map.keys():
+            value = _merge_sync_values(
+                base_map.get(key, _SYNC_MISSING),
+                desired_map.get(key, _SYNC_MISSING),
+                latest_map.get(key, _SYNC_MISSING),
+                f"{path}.{key}"
+            )
+            if value is not _SYNC_MISSING:
+                merged[key] = value
+        return merged
+
+    if all(isinstance(value, list) or value is _SYNC_MISSING for value in (base, desired, latest)):
+        base_list = [] if base is _SYNC_MISSING else base
+        desired_list = [] if desired is _SYNC_MISSING else desired
+        latest_list = [] if latest is _SYNC_MISSING else latest
+
+        def identity(item):
+            if not isinstance(item, dict):
+                return None
+            if item.get("empId") is not None and item.get("date"):
+                return f"attendance:{item['empId']}:{item['date']}"
+            if item.get("id") is not None:
+                return f"id:{item['id']}"
+            if item.get("username"):
+                return f"username:{str(item['username']).strip().lower()}"
+            return None
+
+        all_items = base_list + desired_list + latest_list
+        if all_items and all(identity(item) is not None for item in all_items):
+            def indexed(items):
+                result = {}
+                for item in items:
+                    key = identity(item)
+                    if key in result:
+                        raise SyncMergeConflict(f"{path}.duplicate-id:{key}")
+                    result[key] = item
+                return result
+
+            base_items = indexed(base_list)
+            desired_items = indexed(desired_list)
+            latest_items = indexed(latest_list)
+            key_order = list(latest_items)
+            key_order.extend(key for key in desired_items if key not in latest_items)
+            merged_items = []
+            for key in key_order:
+                item = _merge_sync_values(
+                    base_items.get(key, _SYNC_MISSING),
+                    desired_items.get(key, _SYNC_MISSING),
+                    latest_items.get(key, _SYNC_MISSING),
+                    f"{path}[id={key}]"
+                )
+                if item is not _SYNC_MISSING:
+                    merged_items.append(item)
+            return merged_items
+
+        def indexed_values(items):
+            return {json.dumps(item, ensure_ascii=False, sort_keys=True): item for item in items}
+
+        base_items = indexed_values(base_list)
+        desired_items = indexed_values(desired_list)
+        latest_items = indexed_values(latest_list)
+        key_order = list(latest_items)
+        key_order.extend(key for key in desired_items if key not in latest_items)
+        key_order.extend(key for key in base_items if key not in desired_items and key not in latest_items)
+        merged_items = []
+        for key in key_order:
+            base_has = key in base_items
+            desired_has = key in desired_items
+            latest_has = key in latest_items
+            if desired_has == base_has:
+                include = latest_has
+            elif latest_has == base_has:
+                include = desired_has
+            else:
+                include = desired_has
+            if include:
+                source = desired_items if desired_has and desired_has != base_has else latest_items
+                merged_items.append(source[key])
+        return merged_items
+
+    raise SyncMergeConflict(path)
+
+
+SYNC_COLLECTIONS = {
+    "employees": ("list", "screen-employees"),
+    "attendance": ("list", "screen-attendance"),
+    "departments": ("list", "screen-employees"),
+    "shifts": ("list", "screen-attendance"),
+    "salaryAdjustments": ("data", "screen-salary-adjustments"),
+    "payrollDelivery": ("data", "screen-payroll-delivery"),
+    "payrollCycles": ("data", "screen-payroll-summary"),
+    "officialHolidays": ("list", "screen-attendance"),
+    "notifications": ("list", None),
+    "users": ("list", None)
+}
+
+
+@app.route("/api/firebase/collection/<collection_key>", methods=["POST"])
+@require_firebase_auth()
+def sync_firebase_collection_api(collection_key):
+    claims = g.auth_claims
+    field_and_screen = SYNC_COLLECTIONS.get(collection_key)
+    if not field_and_screen:
+        return jsonify({"success": False, "message": "مجموعة المزامنة غير مسموح بها."}), 404
+    field, required_screen = field_and_screen
+    is_admin = claims.get("role") == "admin"
+    if collection_key == "users" and not is_admin:
+        return jsonify({"success": False, "message": "مزامنة المستخدمين متاحة لمدير النظام فقط."}), 403
+    if not is_admin and required_screen and (claims.get("screenAccess") or {}).get(required_screen) != "edit":
+        return jsonify({"success": False, "message": "ليست لديك صلاحية تعديل هذه البيانات."}), 403
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "baseData" not in body or "data" not in body:
+        return jsonify({"success": False, "message": "بيانات المزامنة غير مكتملة."}), 400
+    base_data = body["baseData"]
+    desired_data = body["data"]
+    expected_type = list if field == "list" else dict
+    if not isinstance(base_data, expected_type) or not isinstance(desired_data, expected_type):
+        return jsonify({"success": False, "message": "شكل بيانات المزامنة غير صالح."}), 400
+
+    try:
+        _, db = get_firebase_admin()
+        document_ref = db.collection("sidi_yaqout_erp").document(collection_key)
+        from google.cloud import firestore
+        transaction = db.transaction()
+
+        @firestore.transactional
+        def apply_merge(transaction):
+            snapshot = document_ref.get(transaction=transaction)
+            document = snapshot.to_dict() if snapshot.exists else {}
+            latest_data = document.get(field, [] if field == "list" else {})
+            if not isinstance(latest_data, expected_type):
+                raise ValueError("Stored sync collection has an invalid format")
+            merged_data = _merge_sync_values(base_data, desired_data, latest_data)
+            if not _sync_value_equal(merged_data, latest_data):
+                transaction.set(document_ref, {field: merged_data}, merge=True)
+            return merged_data
+
+        merged = apply_merge(transaction)
+        return jsonify({"success": True, "data": merged})
+    except SyncMergeConflict as conflict:
+        return jsonify({
+            "success": False,
+            "conflict": True,
+            "path": conflict.path,
+            "message": "تغيّر هذا السجل على جهاز آخر؛ لم يتم الكتابة فوق أي تعديل. احتفظ بتعديلاتك وراجع النسخة السحابية."
+        }), 409
+    except Exception:
+        app.logger.exception("Firebase collection synchronization failed")
+        return jsonify({"success": False, "message": "تعذرت مزامنة البيانات. لم يتم تأكيد حفظ التغيير."}), 500
+
+
+@app.route("/api/employee/self-service-data", methods=["GET"])
+@require_firebase_auth()
+def employee_self_service_data_api():
+    claims = g.auth_claims
+    if claims.get("role") != "employee":
+        return jsonify({"success": False, "message": "هذه الواجهة مخصصة لحساب الموظف."}), 403
+    employee_id = str(claims.get("empId") or "").strip()
+    if not employee_id:
+        return jsonify({"success": False, "message": "حساب المستخدم غير مرتبط برقم موظف."}), 403
+
+    try:
+        _, db = get_firebase_admin()
+        base_ref = db.collection("sidi_yaqout_erp")
+        employee_snapshot = base_ref.document("employees").get()
+        attendance_snapshot = base_ref.document("attendance").get()
+        adjustments_snapshot = base_ref.document("salaryAdjustments").get()
+        holidays_snapshot = base_ref.document("officialHolidays").get()
+
+        employee_document = employee_snapshot.to_dict() if employee_snapshot.exists else {}
+        employee_list = employee_document.get("list", []) if isinstance(employee_document, dict) else []
+
+        attendance_document = attendance_snapshot.to_dict() if attendance_snapshot.exists else {}
+        attendance_list = attendance_document.get("list", []) if isinstance(attendance_document, dict) else []
+
+        adjustments_document = adjustments_snapshot.to_dict() if adjustments_snapshot.exists else {}
+        adjustments = adjustments_document.get("data", {}) if isinstance(adjustments_document, dict) else {}
+
+        holidays_document = holidays_snapshot.to_dict() if holidays_snapshot.exists else {}
+        holidays = holidays_document.get("list", []) if isinstance(holidays_document, dict) else []
+        result = build_employee_self_service_data(employee_id, employee_list, attendance_list, adjustments, holidays)
+        if not result:
+            return jsonify({"success": False, "message": "لم يتم العثور على بيانات الموظف المرتبط بالحساب."}), 404
+        return jsonify({"success": True, **result})
+    except Exception:
+        app.logger.exception("Unable to load employee self-service data")
+        return jsonify({"success": False, "message": "تعذر تحميل بياناتك الآن. حاول مرة أخرى."}), 500
+
+
+def leaves_permissions_document(db):
+    return db.collection(LEAVES_PERMISSIONS_PATH[0]).document(LEAVES_PERMISSIONS_PATH[1])
+
+
+def leaves_employee_records(db):
+    snapshot = db.collection("sidi_yaqout_erp").document("employees").get()
+    value = snapshot.to_dict() if snapshot.exists else {}
+    records = value.get("list", []) if isinstance(value, dict) else []
+    return [employee for employee in records if isinstance(employee, dict)] if isinstance(records, list) else []
+
+
+def leaves_is_admin(claims):
+    return claims.get("role") == "admin" or normalized_username(claims.get("username")) == "admin"
+
+
+def leaves_is_manager(claims):
+    return (
+        claims.get("role") in ("admin", "manager", "supervisor")
+        or claims.get("isManager") is True
+    )
+
+
+def leaves_can_manage_employee(claims, employee, employees, allow_self=True):
+    if leaves_is_admin(claims):
+        return True
+    actor_id = str(claims.get("empId") or "")
+    employee_id = str(employee.get("id") or "")
+    if allow_self and actor_id and employee_id == actor_id:
+        return True
+    if not leaves_is_manager(claims) or not actor_id or employee_id == actor_id:
+        return False
+    actor = next((entry for entry in employees if str(entry.get("id") or "") == actor_id), {})
+    return (
+        str(employee.get("managerId") or "") == actor_id
+        or bool(employee.get("managerName") and employee.get("managerName") == claims.get("fullName"))
+        or bool(actor.get("job") and employee.get("job") and str(actor["job"]).strip() == str(employee["job"]).strip())
+    )
+
+
+def leaves_visible_to_user(claims, item, employees):
+    if leaves_is_admin(claims):
+        return True
+    actor_id = str(claims.get("empId") or "")
+    if actor_id and str(item.get("empId") or "") == actor_id:
+        return True
+    employee = next((entry for entry in employees if str(entry.get("id") or "") == str(item.get("empId") or "")), None)
+    return bool(employee and leaves_can_manage_employee(claims, employee, employees, allow_self=False))
+
+
+def update_leaves_permissions(mutator):
+    from google.cloud import firestore
+
+    _, db = get_firebase_admin()
+    document = leaves_permissions_document(db)
+    transaction = db.transaction(max_attempts=5)
+
+    @firestore.transactional
+    def apply_update(txn):
+        snapshot = document.get(transaction=txn)
+        value = snapshot.to_dict() if snapshot.exists else {}
+        current = value.get("list", []) if isinstance(value, dict) else []
+        if not isinstance(current, list):
+            raise ValueError("Stored leaves and permissions data is invalid")
+        result, updated = mutator(current)
+        txn.set(document, {"list": updated})
+        return result
+
+    return apply_update(transaction)
+
+
+def valid_iso_date(value):
+    try:
+        parsed = datetime.datetime.strptime(str(value), "%Y-%m-%d").date()
+        return parsed.isoformat() == value
+    except (TypeError, ValueError):
+        return False
+
+
+@app.route("/api/leaves-permissions", methods=["GET", "POST", "PUT", "DELETE"])
+@require_firebase_auth()
+def leaves_permissions_api():
+    claims = g.auth_claims
+    screen_access = claims.get("screenAccess") or {}
+    if not leaves_is_admin(claims) and screen_access.get("screen-leaves-permissions") not in ("view", "edit"):
+        return jsonify({"success": False, "message": "ليست لديك صلاحية استخدام شاشة الإجازات والأذونات."}), 403
+
+    try:
+        _, db = get_firebase_admin()
+        document = leaves_permissions_document(db)
+        employees = leaves_employee_records(db)
+
+        if request.method == "GET":
+            snapshot = document.get()
+            value = snapshot.to_dict() if snapshot.exists else {}
+            records = value.get("list", []) if isinstance(value, dict) else []
+            if not isinstance(records, list):
+                raise ValueError("Stored leaves and permissions data is invalid")
+            visible = [item for item in records if isinstance(item, dict) and leaves_visible_to_user(claims, item, employees)]
+            available_employees = [
+                {
+                    key: employee.get(key)
+                    for key in ("id", "name", "job", "managerId", "managerName", "annualLeaveQuota")
+                    if key in employee
+                }
+                for employee in employees
+                if leaves_can_manage_employee(claims, employee, employees)
+            ]
+            return jsonify({"success": True, "items": visible, "employees": available_employees})
+
+        if not leaves_is_admin(claims):
+            return jsonify({"success": False, "message": "هذه العملية متاحة لمدير النظام فقط."}), 403
+
+        if request.method == "PUT":
+            data = request.get_json(silent=True) or {}
+            items = data.get("items")
+            if not isinstance(items, list) or any(not isinstance(item, dict) or not item.get("id") for item in items):
+                return jsonify({"success": False, "message": "بيانات الاستعادة غير صالحة."}), 400
+            ids = [str(item["id"]) for item in items]
+            if len(ids) != len(set(ids)):
+                return jsonify({"success": False, "message": "تحتوي بيانات الاستعادة على معرفات مكررة."}), 400
+
+            def replace_all(_current):
+                return len(items), items
+
+            count = update_leaves_permissions(replace_all)
+            return jsonify({"success": True, "count": count})
+
+        if request.method == "DELETE":
+            update_leaves_permissions(lambda _current: (True, []))
+            return jsonify({"success": True})
+
+        data = request.get_json(silent=True) or {}
+        item_type = str(data.get("itemType") or "")
+        if item_type not in ("leave", "permission"):
+            return jsonify({"success": False, "message": "نوع الطلب غير صالح."}), 400
+        employee_id = str(data.get("empId") or "").strip()
+        employee = next((entry for entry in employees if str(entry.get("id") or "") == employee_id), None)
+        if not employee or not leaves_can_manage_employee(claims, employee, employees):
+            return jsonify({"success": False, "message": "لا يمكنك تقديم طلب لهذا الموظف."}), 403
+
+        start_date = str(data.get("startDate") or "")
+        end_date = str(data.get("endDate") or "")
+        if not valid_iso_date(start_date) or not valid_iso_date(end_date) or end_date < start_date:
+            return jsonify({"success": False, "message": "تواريخ الطلب غير صالحة."}), 400
+
+        item_id = f"{item_type}_{uuid.uuid4().hex}"
+        submitted_by = str(claims.get("fullName") or claims.get("username") or "")[:120]
+        item = {
+            "id": item_id,
+            "itemType": item_type,
+            "empId": employee.get("id"),
+            "empCode": employee.get("id"),
+            "empName": str(employee.get("name") or "")[:120],
+            "dept": str(employee.get("job") or "عام")[:120],
+            "managerEmpId": employee.get("managerId") or None,
+            "managerName": str(employee.get("managerName") or "مدير النظام")[:120],
+            "reason": str(data.get("reason") or "").strip()[:2000],
+            "status": "pending",
+            "submittedBy": submitted_by,
+            "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "approvedBy": None,
+            "approvedAt": None,
+            "rejectionReason": None
+        }
+        if item_type == "leave":
+            item.update({
+                "leaveType": str(data.get("leaveType") or "")[:100],
+                "leaveTypeTitle": str(data.get("leaveTypeTitle") or "")[:120],
+                "startDate": start_date,
+                "endDate": end_date,
+                "daysCount": (datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+                              - datetime.datetime.strptime(start_date, "%Y-%m-%d").date()).days + 1
+            })
+        else:
+            time_from = str(data.get("startTime") or "")
+            time_to = str(data.get("endTime") or "")
+            try:
+                from_minutes = datetime.datetime.strptime(time_from, "%H:%M").hour * 60 + datetime.datetime.strptime(time_from, "%H:%M").minute
+                to_parsed = datetime.datetime.strptime(time_to, "%H:%M")
+                to_minutes = to_parsed.hour * 60 + to_parsed.minute
+            except ValueError:
+                return jsonify({"success": False, "message": "أوقات الإذن غير صالحة."}), 400
+            if to_minutes <= from_minutes:
+                return jsonify({"success": False, "message": "وقت نهاية الإذن يجب أن يأتي بعد وقت بدايته."}), 400
+            item.update({
+                "permType": str(data.get("permType") or "")[:100],
+                "permTypeTitle": str(data.get("permTypeTitle") or "")[:120],
+                "startDate": start_date,
+                "endDate": start_date,
+                "startTime": time_from,
+                "endTime": time_to,
+                "hoursCount": round((to_minutes - from_minutes) / 60, 2),
+                "daysCount": 0
+            })
+
+        def append_item(current):
+            current.insert(0, item)
+            return item, current
+
+        saved_item = update_leaves_permissions(append_item)
+        return jsonify({"success": True, "item": saved_item}), 201
+    except Exception:
+        app.logger.exception("Leaves and permissions API failed")
+        return jsonify({"success": False, "message": "تعذر إتمام العملية. لم يتم تأكيد حفظ التغيير."}), 500
+
+
+@app.route("/api/leaves-permissions/<item_id>/decision", methods=["POST"])
+@require_firebase_auth()
+def leaves_permissions_decision_api(item_id):
+    claims = g.auth_claims
+    screen_access = claims.get("screenAccess") or {}
+    if not leaves_is_admin(claims) and screen_access.get("screen-leaves-permissions") not in ("view", "edit"):
+        return jsonify({"success": False, "message": "ليست لديك صلاحية استخدام شاشة الإجازات والأذونات."}), 403
+
+    data = request.get_json(silent=True) or {}
+    decision = str(data.get("decision") or "")
+    if decision not in ("approve", "reject"):
+        return jsonify({"success": False, "message": "قرار الطلب غير صالح."}), 400
+
+    try:
+        _, db = get_firebase_admin()
+        employees = leaves_employee_records(db)
+        claims_is_admin = leaves_is_admin(claims)
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        actor_name = str(claims.get("fullName") or claims.get("username") or "")[:120]
+
+        def decide(current):
+            item = next((entry for entry in current if isinstance(entry, dict) and str(entry.get("id")) == item_id), None)
+            if not item:
+                raise LookupError("طلب الإجازة أو الإذن غير موجود.")
+            employee = next((entry for entry in employees if str(entry.get("id") or "") == str(item.get("empId") or "")), None)
+            if not claims_is_admin and (not employee or not leaves_can_manage_employee(claims, employee, employees, allow_self=False)):
+                raise PermissionError("لا يمكنك اعتماد أو رفض هذا الطلب.")
+            if item.get("status") != "pending":
+                raise ValueError("تم اتخاذ قرار بشأن هذا الطلب بالفعل.")
+            item["status"] = "approved" if decision == "approve" else "rejected"
+            item["approvedBy" if decision == "approve" else "rejectedBy"] = actor_name
+            item["approvedAt"] = now
+            if decision == "reject":
+                item["rejectionReason"] = str(data.get("reason") or "").strip()[:1000] or "اعتذار لظروف العمل"
+            return item, current
+
+        item = update_leaves_permissions(decide)
+        return jsonify({"success": True, "item": item})
+    except LookupError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 409
+    except Exception:
+        app.logger.exception("Leaves and permissions decision failed")
+        return jsonify({"success": False, "message": "تعذر تسجيل قرار الطلب."}), 500
+
+
+@app.route("/api/leaves-permissions/<item_id>", methods=["DELETE"])
+@require_firebase_auth(admin_only=True)
+def delete_leaves_permission_api(item_id):
+    try:
+        def delete_item(current):
+            updated = [item for item in current if not (isinstance(item, dict) and str(item.get("id")) == item_id)]
+            return len(updated) != len(current), updated
+
+        deleted = update_leaves_permissions(delete_item)
+        if not deleted:
+            return jsonify({"success": False, "message": "الطلب غير موجود."}), 404
+        return jsonify({"success": True})
+    except Exception:
+        app.logger.exception("Deleting a leave or permission request failed")
+        return jsonify({"success": False, "message": "تعذر حذف الطلب."}), 500
 
 
 # ── مركز مزامنة الإشعارات بين الموبايل والديسكتوب (Notifications Sync API) ──
@@ -905,6 +1627,8 @@ def static_files(path):
     blocked_names = {
         "backups",
         "attendance_punches.json",
+        "attendance_punches.jsonl",
+        "punches_by_month",
         "geofence_config.json",
         "notifications_store.json"
     }

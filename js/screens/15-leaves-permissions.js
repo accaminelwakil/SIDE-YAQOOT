@@ -4,27 +4,71 @@
 // منظومة عيادات سيدي ياقوت التخصصية
 // ====================================================================
 
-let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permissions_db') || '[]');
+let leavesPermissionsDb = [];
+let leavesManagedEmployees = [];
 
 (function() {
     let currentFilterType = 'all'; // 'all', 'leave', 'permission'
     let currentFilterStatus = 'all'; // 'all', 'pending', 'approved', 'rejected'
+    let loadedLeavesUsername = '';
+    let loadingLeavesRequest = null;
+    let failedLeavesUsername = '';
 
-    // حفظ البيانات محلياً وسحابياً
-    function saveLeavesPermissionsDb() {
-        localStorage.setItem('erp_leaves_permissions_db', JSON.stringify(leavesPermissionsDb));
-        if (typeof pushSingleCollectionToFirebase === 'function') {
-            pushSingleCollectionToFirebase('leavesPermissions', leavesPermissionsDb);
+    async function leavesApiRequest(url, method = 'GET', body = null) {
+        if (typeof window.authenticatedFetch !== 'function') {
+            throw new Error('خدمة الاتصال الآمن غير جاهزة. أعد تحميل التطبيق بعد تسجيل الدخول.');
         }
-        renderLeavesPermissionsScreen();
+        const options = { method, headers: { 'Content-Type': 'application/json' } };
+        if (body !== null) options.body = JSON.stringify(body);
+        const response = await window.authenticatedFetch(url, options);
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || 'تعذر إتمام العملية.');
+        }
+        return result;
     }
+
+    async function loadLeavesPermissionsFromServer(force = false) {
+        const username = String((window.currentUser && window.currentUser.username) || '');
+        if (!username) return;
+        if (!force && loadedLeavesUsername === username) return;
+        if (!force && failedLeavesUsername === username) return;
+        if (loadingLeavesRequest) return loadingLeavesRequest;
+
+        if (loadedLeavesUsername && loadedLeavesUsername !== username) {
+            leavesPermissionsDb = [];
+            leavesManagedEmployees = [];
+        }
+
+        failedLeavesUsername = '';
+        loadingLeavesRequest = leavesApiRequest('/api/leaves-permissions').then(result => {
+            if (!Array.isArray(result.items) || !Array.isArray(result.employees)) {
+                throw new Error('استجابة بيانات الإجازات من الخادم غير صالحة.');
+            }
+            leavesPermissionsDb = result.items;
+            leavesManagedEmployees = result.employees;
+            loadedLeavesUsername = username;
+            failedLeavesUsername = '';
+            if (document.getElementById('screen-leaves-permissions')?.classList.contains('active')) {
+                renderLeavesPermissionsScreen();
+            }
+        }).catch(error => {
+            failedLeavesUsername = username;
+            if (typeof showToast === 'function') showToast(error.message, 'error');
+            throw error;
+        }).finally(() => {
+            loadingLeavesRequest = null;
+        });
+        return loadingLeavesRequest;
+    }
+    window.loadLeavesPermissionsFromServer = loadLeavesPermissionsFromServer;
 
     // ── دوال التحقق من دور المستخدم وإدارته للموظفين ──────────────────
     function isUserManager(user) {
         if (!user) return false;
         if (user.role === 'admin' || user.username === 'admin') return true;
         if (user.isManager === true || user.role === 'manager' || user.role === 'supervisor') return true;
-        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const allEmps = leavesManagedEmployees;
         const uEmpId = user.empId ? String(user.empId) : null;
         if (uEmpId) {
             const hasSubordinates = allEmps.some(e => String(e.managerId) === uEmpId || (e.managerName && e.managerName === user.fullName));
@@ -35,7 +79,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
 
     function getUserDepartment(user) {
         if (!user) return null;
-        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const allEmps = leavesManagedEmployees;
         if (user.empId) {
             const found = allEmps.find(e => String(e.id) === String(user.empId));
             if (found && found.job) return found.job.trim();
@@ -44,7 +88,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
     }
 
     function getEmployeesManagedByUser(user) {
-        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const allEmps = leavesManagedEmployees;
         if (!user) return [];
         if (user.role === 'admin' || user.username === 'admin') return allEmps;
 
@@ -71,6 +115,10 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
         const tableBody = document.getElementById('leaves-table-body');
         const emptyHint = document.getElementById('leaves-empty-hint');
         if (!tableBody) return;
+        const username = String((window.currentUser && window.currentUser.username) || '');
+        if (username && loadedLeavesUsername !== username && !loadingLeavesRequest && failedLeavesUsername !== username) {
+            loadLeavesPermissionsFromServer().catch(error => console.error('Failed to load leave requests:', error));
+        }
 
         // ملء القوائم المنسدلة للموظفين والمديرين
         populateLeavesEmployeeDropdowns();
@@ -149,83 +197,131 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
 
         if (emptyHint) emptyHint.style.display = 'none';
 
-        let html = '';
-        filtered.forEach((item, index) => {
-            const isLeave = (item.itemType === 'leave');
-            const typeBadge = isLeave ? 
-                `<span class="badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; font-size:11px;">🏖️ إجازة (${item.leaveTypeTitle || item.leaveType})</span>` :
-                `<span class="badge" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px;">⏱️ إذن (${item.permTypeTitle || item.permType})</span>`;
+        tableBody.replaceChildren();
+        const makeCell = (text, styles = {}) => {
+            const cell = document.createElement('td');
+            cell.textContent = String(text ?? '-');
+            Object.assign(cell.style, styles);
+            return cell;
+        };
+        const makeBadge = (text, styles) => {
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            badge.textContent = text;
+            Object.assign(badge.style, styles);
+            return badge;
+        };
 
-            let statusBadge = '';
-            if (item.status === 'approved') {
-                statusBadge = `<span class="badge" style="background:#dcfce7; color:#15803d; border:1px solid #86efac; font-weight:800; font-size:11px;">معتمد ومقبول ✅</span>`;
-            } else if (item.status === 'rejected') {
-                statusBadge = `<span class="badge" style="background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; font-weight:800; font-size:11px;">مرفوض ❌</span>`;
-            } else {
-                statusBadge = `<span class="badge" style="background:#fef9c3; color:#a16207; border:1px solid #fde047; font-weight:800; font-size:11px;">قيد الانتظار ⏳</span>`;
-            }
-
-            const durationText = isLeave ? 
-                `<strong>${item.daysCount}</strong> يوم (من ${item.startDate} إلى ${item.endDate})` :
-                `<strong>${item.hoursCount}</strong> س (${item.startDate} من ${item.startTime || '-'} إلى ${item.endTime || '-'})`;
-
-            // هل يحق للمستخدم الحالي اتخاذ قرار الاعتماد؟
-            // مدير النظام أو المدير المباشر لهذا الموظف (بشرط ألا يعتمد طلبه لنفسه)
+        filtered.forEach(item => {
+            const isLeave = item.itemType === 'leave';
             const isSelf = userEmpId && String(item.empId) === userEmpId;
-            const isSubordinate = (userEmpId && String(item.managerEmpId) === userEmpId) || 
+            const isSubordinate = (userEmpId && String(item.managerEmpId) === userEmpId) ||
                                   (item.managerName && item.managerName === user.fullName) ||
                                   (userDept && item.dept === userDept);
             const canApprove = isAdmin || (isManager && isSubordinate && !isSelf);
+            const row = document.createElement('tr');
+            const typeCell = document.createElement('td');
+            typeCell.appendChild(makeBadge(
+                isLeave ? `🏖️ إجازة (${item.leaveTypeTitle || item.leaveType || ''})` : `⏱️ إذن (${item.permTypeTitle || item.permType || ''})`,
+                isLeave
+                    ? { background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontSize: '11px' }
+                    : { background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', fontSize: '11px' }
+            ));
+            const statusCell = document.createElement('td');
+            const statusStyles = item.status === 'approved'
+                ? { background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }
+                : item.status === 'rejected'
+                    ? { background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }
+                    : { background: '#fef9c3', color: '#a16207', border: '1px solid #fde047' };
+            const statusText = item.status === 'approved' ? 'معتمد ومقبول ✅'
+                : item.status === 'rejected' ? 'مرفوض ❌' : 'قيد الانتظار ⏳';
+            statusCell.appendChild(makeBadge(statusText, { ...statusStyles, fontWeight: '800', fontSize: '11px' }));
 
-            let actionsHtml = '';
+            const durationCell = document.createElement('td');
+            durationCell.style.fontSize = '12px';
+            const durationValue = document.createElement('strong');
+            durationValue.textContent = String(isLeave ? item.daysCount ?? 0 : item.hoursCount ?? 0);
+            durationCell.appendChild(durationValue);
+            durationCell.append(isLeave
+                ? ` يوم (من ${item.startDate || '-'} إلى ${item.endDate || '-'})`
+                : ` س (${item.startDate || '-'} من ${item.startTime || '-'} إلى ${item.endTime || '-'})`);
+
+            const reasonCell = makeCell(item.reason || '-', {
+                fontSize: '11.5px',
+                color: '#475569',
+                maxWidth: '180px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+            });
+            reasonCell.title = String(item.reason || '');
+
+            const actionsCell = document.createElement('td');
             if (item.status === 'pending' && canApprove) {
-                actionsHtml = `
-                    <div style="display:flex; gap:4px; justify-content:center;">
-                        <button type="button" class="btn-success" style="padding:4px 8px; font-size:11px; min-height:30px;" onclick="approveLeavePermissionItem('${item.id}', true)" title="الموافقة والاعتماد">✔️ قبول</button>
-                        <button type="button" class="btn-danger" style="padding:4px 8px; font-size:11px; min-height:30px;" onclick="openRejectModal('${item.id}')" title="رفض الطلب">✖️ رفض</button>
-                    </div>
-                `;
-            } else if (item.status === 'approved') {
-                actionsHtml = `
-                    <div style="font-size:10px; color:#15803d;">
-                        اعتمد: <strong>${item.approvedBy || 'المدير'}</strong>
-                        <div style="color:#64748b;">${item.approvedAt ? item.approvedAt.split('T')[0] : ''}</div>
-                    </div>
-                `;
-            } else if (item.status === 'rejected') {
-                actionsHtml = `
-                    <div style="font-size:10px; color:#b91c1c;">
-                        رُفض: <strong>${item.rejectedBy || 'المدير'}</strong>
-                        <div style="color:#475569;" title="${item.rejectionReason || ''}">${(item.rejectionReason || 'بدون سبب').slice(0, 16)}..</div>
-                    </div>
-                `;
+                const actionGroup = document.createElement('div');
+                actionGroup.style.cssText = 'display:flex; gap:4px; justify-content:center;';
+                const approveButton = document.createElement('button');
+                approveButton.type = 'button';
+                approveButton.className = 'btn-success';
+                approveButton.style.cssText = 'padding:4px 8px; font-size:11px; min-height:30px;';
+                approveButton.textContent = '✔️ قبول';
+                approveButton.title = 'الموافقة والاعتماد';
+                approveButton.addEventListener('click', () => approveLeavePermissionItem(item.id, true));
+                const rejectButton = document.createElement('button');
+                rejectButton.type = 'button';
+                rejectButton.className = 'btn-danger';
+                rejectButton.style.cssText = 'padding:4px 8px; font-size:11px; min-height:30px;';
+                rejectButton.textContent = '✖️ رفض';
+                rejectButton.title = 'رفض الطلب';
+                rejectButton.addEventListener('click', () => openRejectModal(item.id));
+                actionGroup.append(approveButton, rejectButton);
+                actionsCell.appendChild(actionGroup);
+            } else if (item.status === 'approved' || item.status === 'rejected') {
+                const decisionInfo = document.createElement('div');
+                decisionInfo.style.cssText = `font-size:10px; color:${item.status === 'approved' ? '#15803d' : '#b91c1c'};`;
+                const approver = document.createElement('strong');
+                approver.textContent = String(item.status === 'approved' ? item.approvedBy || 'المدير' : item.rejectedBy || 'المدير');
+                decisionInfo.append(item.status === 'approved' ? 'اعتمد: ' : 'رُفض: ', approver);
+                const decisionDate = document.createElement('div');
+                decisionDate.style.color = '#64748b';
+                decisionDate.textContent = String(item.approvedAt ? item.approvedAt.split('T')[0] : '');
+                decisionInfo.appendChild(decisionDate);
+                if (item.status === 'rejected') {
+                    const reason = document.createElement('div');
+                    reason.style.color = '#475569';
+                    reason.title = String(item.rejectionReason || '');
+                    reason.textContent = `${String(item.rejectionReason || 'بدون سبب').slice(0, 16)}..`;
+                    decisionInfo.appendChild(reason);
+                }
+                actionsCell.appendChild(decisionInfo);
             } else {
-                actionsHtml = `<span style="font-size:11px; color:#94a3b8;">بانتظار المدير</span>`;
+                actionsCell.textContent = 'بانتظار المدير';
+                actionsCell.style.cssText = 'font-size:11px; color:#94a3b8;';
             }
 
-            // زر الحذف لمدير النظام
             if (isAdmin) {
-                actionsHtml += `
-                    <button type="button" style="background:none; border:none; cursor:pointer; font-size:13px; margin-top:2px;" onclick="deleteLeavePermissionItem('${item.id}')" title="حذف السجل نهائياً">🗑️</button>
-                `;
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.style.cssText = 'background:none; border:none; cursor:pointer; font-size:13px; margin-top:2px;';
+                deleteButton.title = 'حذف السجل نهائياً';
+                deleteButton.textContent = '🗑️';
+                deleteButton.addEventListener('click', () => deleteLeavePermissionItem(item.id));
+                actionsCell.appendChild(deleteButton);
             }
 
-            html += `
-                <tr>
-                    <td style="font-weight:bold; font-family:Consolas, monospace;">#${item.empCode || item.empId}</td>
-                    <td style="font-weight:bold; color:#1e293b;">${item.empName}</td>
-                    <td>${item.dept || '-'}</td>
-                    <td>${typeBadge}</td>
-                    <td style="font-size:12px;">${durationText}</td>
-                    <td style="font-size:11.5px; color:#475569; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${item.reason || ''}">${item.reason || '-'}</td>
-                    <td style="font-size:11px; font-weight:bold; color:#102a45;">${item.managerName || 'مدير النظام'}</td>
-                    <td>${statusBadge}</td>
-                    <td>${actionsHtml}</td>
-                </tr>
-            `;
+            row.append(
+                makeCell(`#${item.empCode || item.empId}`, { fontWeight: 'bold', fontFamily: 'Consolas, monospace' }),
+                makeCell(item.empName || '-', { fontWeight: 'bold', color: '#1e293b' }),
+                makeCell(item.dept || '-'),
+                typeCell,
+                durationCell,
+                reasonCell,
+                makeCell(item.managerName || 'مدير النظام', { fontSize: '11px', fontWeight: 'bold', color: '#102a45' }),
+                statusCell,
+                actionsCell
+            );
+            tableBody.appendChild(row);
         });
-
-        tableBody.innerHTML = html;
     }
 
     // تحديث كروت الإحصائيات العلوية
@@ -250,7 +346,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
 
     // ملء قوائم الموظفين والأقسام بحسب صلاحيات المستخدم
     function populateLeavesEmployeeDropdowns() {
-        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const allEmps = leavesManagedEmployees;
         const user = window.currentUser || {};
         const isAdmin = (user.role === 'admin' || user.username === 'admin');
         const isMgr = isUserManager(user);
@@ -337,7 +433,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
             return;
         }
 
-        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const allEmps = leavesManagedEmployees;
         const emp = allEmps.find(e => String(e.id) === String(empId));
         if (!emp) return;
 
@@ -346,12 +442,29 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
             .reduce((sum, i) => sum + (Number(i.daysCount) || 0), 0);
         const remaining = Math.max(0, quota - usedLeaves);
 
-        infoBox.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <span>👤 المدير المباشر: <strong>${emp.managerName || 'مدير النظام'}</strong></span>
-                <span>📅 الرصيد السنوي: <strong>${quota}</strong> يوم | المستهلك: <strong style="color:#b91c1c;">${usedLeaves}</strong> | المتبقي: <strong style="color:#059669;">${remaining}</strong> يوم</span>
-            </div>
-        `;
+        infoBox.replaceChildren();
+        const infoRow = document.createElement('div');
+        infoRow.style.cssText = 'display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;';
+        const managerLabel = document.createElement('span');
+        managerLabel.append('👤 المدير المباشر: ');
+        const managerValue = document.createElement('strong');
+        managerValue.textContent = String(emp.managerName || 'مدير النظام');
+        managerLabel.appendChild(managerValue);
+        const quotaLabel = document.createElement('span');
+        quotaLabel.append('📅 الرصيد السنوي: ');
+        const quotaValue = document.createElement('strong');
+        quotaValue.textContent = String(quota);
+        quotaLabel.append(quotaValue, ' يوم | المستهلك: ');
+        const usedValue = document.createElement('strong');
+        usedValue.style.color = '#b91c1c';
+        usedValue.textContent = String(usedLeaves);
+        quotaLabel.append(usedValue, ' | المتبقي: ');
+        const remainingValue = document.createElement('strong');
+        remainingValue.style.color = '#059669';
+        remainingValue.textContent = String(remaining);
+        quotaLabel.append(remainingValue, ' يوم');
+        infoRow.append(managerLabel, quotaLabel);
+        infoBox.appendChild(infoRow);
         infoBox.style.display = 'block';
     }
 
@@ -401,7 +514,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
     }
 
     // حفظ طلب الإجازة
-    function submitNewLeaveRequest(e) {
+    async function submitNewLeaveRequest(e) {
         if (e) e.preventDefault();
         const user = window.currentUser || {};
         const isMgr = isUserManager(user);
@@ -418,7 +531,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
             return;
         }
 
-        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const allEmps = leavesManagedEmployees;
         const emp = allEmps.find(e => String(e.id) === String(empId));
         if (!emp) return;
 
@@ -427,34 +540,26 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
         const leaveTypeTitle = leaveTypeSelect.options[leaveTypeSelect.selectedIndex].text;
         const startDate = document.getElementById('new-leave-start-date').value;
         const endDate = document.getElementById('new-leave-end-date').value;
-        const daysCount = Number(document.getElementById('new-leave-days-count').value) || 1;
         const reason = document.getElementById('new-leave-reason').value.trim();
 
-        const newItem = {
-            id: 'leave_' + Date.now(),
-            itemType: 'leave',
-            empId: emp.id,
-            empCode: emp.id,
-            empName: emp.name,
-            dept: emp.job || 'عام',
-            managerEmpId: emp.managerId || null,
-            managerName: emp.managerName || 'مدير النظام',
-            leaveType: leaveType,
-            leaveTypeTitle: leaveTypeTitle,
-            startDate: startDate,
-            endDate: endDate,
-            daysCount: daysCount,
-            reason: reason,
-            status: 'pending', // 'pending', 'approved', 'rejected'
-            submittedBy: (window.currentUser ? window.currentUser.fullName : emp.name),
-            createdAt: new Date().toISOString(),
-            approvedBy: null,
-            approvedAt: null,
-            rejectionReason: null
-        };
+        let result;
+        try {
+            result = await leavesApiRequest('/api/leaves-permissions', 'POST', {
+                itemType: 'leave',
+                empId: emp.id,
+                leaveType,
+                leaveTypeTitle,
+                startDate,
+                endDate,
+                reason
+            });
+        } catch (error) {
+            alert(error.message);
+            return;
+        }
 
-        leavesPermissionsDb.unshift(newItem);
-        saveLeavesPermissionsDb();
+        leavesPermissionsDb.unshift(result.item);
+        renderLeavesPermissionsScreen();
         closeNewLeaveModal();
 
         // إرسال إشعار فوري للمدير المباشر ومدير النظام
@@ -462,11 +567,11 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
             createNotification({
                 type: 'leave_request',
                 title: 'طلب إجازة جديد 🏖️',
-                message: `قام الموظف (${emp.name}) بطلب إجازة ${leaveTypeTitle} لمدة ${daysCount} يوم من ${startDate} إلى ${endDate}.`,
+                message: `قام الموظف (${emp.name}) بطلب إجازة ${leaveTypeTitle} لمدة ${result.item.daysCount} يوم من ${startDate} إلى ${endDate}.`,
                 targetRole: 'manager',
                 targetUsername: (emp.managerUsername || 'admin'),
                 senderName: emp.name,
-                relatedId: newItem.id,
+                relatedId: result.item.id,
                 actionScreen: 'screen-leaves-permissions'
             });
         }
@@ -516,7 +621,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
     }
 
     // حفظ طلب الإذن
-    function submitNewPermissionRequest(e) {
+    async function submitNewPermissionRequest(e) {
         if (e) e.preventDefault();
         const user = window.currentUser || {};
         const isMgr = isUserManager(user);
@@ -533,7 +638,7 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
             return;
         }
 
-        const allEmps = Array.isArray(window.employees) ? window.employees : [];
+        const allEmps = leavesManagedEmployees;
         const emp = allEmps.find(e => String(e.id) === String(empId));
         if (!emp) return;
 
@@ -543,37 +648,28 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
         const permDate = document.getElementById('new-perm-date').value;
         const timeFrom = document.getElementById('new-perm-from-time').value;
         const timeTo = document.getElementById('new-perm-to-time').value;
-        const hoursCount = Number(document.getElementById('new-perm-hours-count').value) || 1;
         const reason = document.getElementById('new-perm-reason').value.trim();
 
-        const newItem = {
-            id: 'perm_' + Date.now(),
-            itemType: 'permission',
-            empId: emp.id,
-            empCode: emp.id,
-            empName: emp.name,
-            dept: emp.job || 'عام',
-            managerEmpId: emp.managerId || null,
-            managerName: emp.managerName || 'مدير النظام',
-            permType: permType,
-            permTypeTitle: permTypeTitle,
-            startDate: permDate,
-            endDate: permDate,
-            startTime: timeFrom,
-            endTime: timeTo,
-            hoursCount: hoursCount,
-            daysCount: 0,
-            reason: reason,
-            status: 'pending',
-            submittedBy: (window.currentUser ? window.currentUser.fullName : emp.name),
-            createdAt: new Date().toISOString(),
-            approvedBy: null,
-            approvedAt: null,
-            rejectionReason: null
-        };
+        let result;
+        try {
+            result = await leavesApiRequest('/api/leaves-permissions', 'POST', {
+                itemType: 'permission',
+                empId: emp.id,
+                permType,
+                permTypeTitle,
+                startDate: permDate,
+                endDate: permDate,
+                startTime: timeFrom,
+                endTime: timeTo,
+                reason
+            });
+        } catch (error) {
+            alert(error.message);
+            return;
+        }
 
-        leavesPermissionsDb.unshift(newItem);
-        saveLeavesPermissionsDb();
+        leavesPermissionsDb.unshift(result.item);
+        renderLeavesPermissionsScreen();
         closeNewPermissionModal();
 
         // إشعار للمدير المباشر
@@ -581,11 +677,11 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
             createNotification({
                 type: 'permission_request',
                 title: 'طلب إذن جديد ⏱️',
-                message: `قام الموظف (${emp.name}) بطلب إذن ${permTypeTitle} لمدة ${hoursCount} ساعة يوم ${permDate}.`,
+                message: `قام الموظف (${emp.name}) بطلب إذن ${permTypeTitle} لمدة ${result.item.hoursCount} ساعة يوم ${permDate}.`,
                 targetRole: 'manager',
                 targetUsername: (emp.managerUsername || 'admin'),
                 senderName: emp.name,
-                relatedId: newItem.id,
+                relatedId: result.item.id,
                 actionScreen: 'screen-leaves-permissions'
             });
         }
@@ -594,36 +690,37 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
     }
 
     // قبول واعتماد الطلب
-    function approveLeavePermissionItem(itemId, isApproved) {
+    async function approveLeavePermissionItem(itemId, isApproved) {
         const item = leavesPermissionsDb.find(i => i.id === itemId);
-        if (!item) return;
+        if (!item || !isApproved) return;
 
         const user = window.currentUser || { fullName: 'المدير العام' };
-        if (isApproved) {
-            if (!confirm(`هل تؤكد اعتماد والموافقة على هذا الطلب للموظف (${item.empName})؟`)) return;
-
-            item.status = 'approved';
-            item.approvedBy = user.fullName || 'المدير المباشر';
-            item.approvedAt = new Date().toISOString();
-
-            saveLeavesPermissionsDb();
-
-            // إرسال إشعار للموظف بنتيجة الموافقة
-            if (typeof createNotification === 'function') {
-                createNotification({
-                    type: item.itemType === 'leave' ? 'leave_approved' : 'permission_approved',
-                    title: 'تمت الموافقة على طلبك! ✅',
-                    message: `تم اعتماد طلبك (${item.itemType === 'leave' ? item.leaveTypeTitle : item.permTypeTitle}) بنجاح من قِبل ${item.approvedBy}.`,
-                    targetEmpId: item.empId,
-                    targetUsername: item.empUsername,
-                    senderName: item.approvedBy,
-                    relatedId: item.id,
-                    actionScreen: 'screen-leaves-permissions'
-                });
-            }
-
-            alert(`🎉 تم اعتماد الطلب بنجاح! وتم إرسال إشعار للموظف (${item.empName}).`);
+        if (!confirm(`هل تؤكد اعتماد والموافقة على هذا الطلب للموظف (${item.empName})؟`)) return;
+        let result;
+        try {
+            result = await leavesApiRequest(`/api/leaves-permissions/${encodeURIComponent(itemId)}/decision`, 'POST', {
+                decision: 'approve'
+            });
+        } catch (error) {
+            alert(error.message);
+            return;
         }
+        leavesPermissionsDb = leavesPermissionsDb.map(entry => entry.id === itemId ? result.item : entry);
+        renderLeavesPermissionsScreen();
+
+        if (typeof createNotification === 'function') {
+            createNotification({
+                type: item.itemType === 'leave' ? 'leave_approved' : 'permission_approved',
+                title: 'تمت الموافقة على طلبك! ✅',
+                message: `تم اعتماد طلبك (${item.itemType === 'leave' ? item.leaveTypeTitle : item.permTypeTitle}) بنجاح من قِبل ${result.item.approvedBy}.`,
+                targetEmpId: item.empId,
+                targetUsername: item.empUsername,
+                senderName: result.item.approvedBy,
+                relatedId: item.id,
+                actionScreen: 'screen-leaves-permissions'
+            });
+        }
+        alert(`🎉 تم اعتماد الطلب بنجاح! وتم إرسال إشعار للموظف (${item.empName}).`);
     }
 
     // فتح نافذة الرفض مع كتابة السبب
@@ -640,19 +737,24 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
         if (modal) modal.style.display = 'none';
     }
 
-    function submitRejectReason() {
+    async function submitRejectReason() {
         const itemId = document.getElementById('reject-item-id').value;
         const reason = document.getElementById('reject-reason-input').value.trim();
         const item = leavesPermissionsDb.find(i => i.id === itemId);
         if (!item) return;
 
-        const user = window.currentUser || { fullName: 'المدير العام' };
-        item.status = 'rejected';
-        item.rejectedBy = user.fullName || 'المدير المباشر';
-        item.rejectionReason = reason || 'اعتذار لظروف العمل';
-        item.approvedAt = new Date().toISOString();
-
-        saveLeavesPermissionsDb();
+        let result;
+        try {
+            result = await leavesApiRequest(`/api/leaves-permissions/${encodeURIComponent(itemId)}/decision`, 'POST', {
+                decision: 'reject',
+                reason
+            });
+        } catch (error) {
+            alert(error.message);
+            return;
+        }
+        leavesPermissionsDb = leavesPermissionsDb.map(entry => entry.id === itemId ? result.item : entry);
+        renderLeavesPermissionsScreen();
         closeRejectModal();
 
         // إرسال إشعار للموظف بالرفض
@@ -660,10 +762,10 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
             createNotification({
                 type: item.itemType === 'leave' ? 'leave_rejected' : 'permission_rejected',
                 title: 'تنبيه: تم رفض الطلب ❌',
-                message: `نعتذر، تم رفض طلبك (${item.itemType === 'leave' ? item.leaveTypeTitle : item.permTypeTitle}) من قِبل ${item.rejectedBy}. السبب: ${item.rejectionReason}`,
+                message: `نعتذر، تم رفض طلبك (${item.itemType === 'leave' ? item.leaveTypeTitle : item.permTypeTitle}) من قِبل ${result.item.rejectedBy}. السبب: ${result.item.rejectionReason}`,
                 targetEmpId: item.empId,
                 targetUsername: item.empUsername,
-                senderName: item.rejectedBy,
+                senderName: result.item.rejectedBy,
                 relatedId: item.id,
                 actionScreen: 'screen-leaves-permissions'
             });
@@ -673,10 +775,15 @@ let leavesPermissionsDb = JSON.parse(localStorage.getItem('erp_leaves_permission
     }
 
     // حذف سجل
-    function deleteLeavePermissionItem(itemId) {
+    async function deleteLeavePermissionItem(itemId) {
         if (!confirm('هل أنت متأكد من حذف هذا السجل نهائياً من النظام؟')) return;
-        leavesPermissionsDb = leavesPermissionsDb.filter(i => i.id !== itemId);
-        saveLeavesPermissionsDb();
+        try {
+            await leavesApiRequest(`/api/leaves-permissions/${encodeURIComponent(itemId)}`, 'DELETE');
+            leavesPermissionsDb = leavesPermissionsDb.filter(i => i.id !== itemId);
+            renderLeavesPermissionsScreen();
+        } catch (error) {
+            alert(error.message);
+        }
     }
 
     // تبديل فلاتر العرض

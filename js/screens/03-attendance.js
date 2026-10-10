@@ -1107,9 +1107,12 @@
 
 
 
-        // حذف أي سجلات سابقة لنفس اليومية منعاً للتكرار
-
-        attendanceRecords = attendanceRecords.filter(r => r.date !== dateVal);
+        // Replace only employees present in this submission; keep other saved
+        // records for the date in case the draft is incomplete.
+        const submittedEmployeeIds = new Set(validRows.map(row => String(row.empId)));
+        attendanceRecords = attendanceRecords.filter(r =>
+            r.date !== dateVal || !submittedEmployeeIds.has(String(r.empId))
+        );
 
 
 
@@ -1424,6 +1427,5 @@
         downloadPrintHtmlAsPdf(html, filename, 'portrait');
 
     }
-
 
 

@@ -1013,18 +1013,7 @@
 
 
     function resetToInitialData() {
-
-        if (confirm('هل تريد استعادة قاعدة بيانات الـ 34 موظف الأصلية؟')) {
-
-            employees = INITIAL_EMPLOYEES;
-
-            saveEmployees();
-
-            updateAllDeptDropdownsAndFilters();
-
-            alert('تم استعادة بيانات الموظفين الـ 34 بنجاح!');
-
-        }
+        alert('لم تعد بيانات الموظفين الافتراضية مضمّنة في ملفات الواجهة لحماية خصوصيتها. لاستعادة البيانات، استخدم نسخة احتياطية موثوقة.');
 
     }
 

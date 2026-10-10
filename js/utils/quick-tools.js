@@ -146,22 +146,23 @@
         return [];
     }
 
-    // جلب ومزامنة حركات البصمات من السيرفر وحفظها محلياً
+    // تحميل سجل البصمات من السيرفر إلى الذاكرة المؤقتة للجلسة فقط
     async function loadSmartPunchesFromServer(onComplete) {
         let punches = [];
         try {
             const resp = await window.authenticatedFetch('/api/attendance/punches');
-            if (resp.ok) {
-                const data = await resp.json();
-                if (data && Array.isArray(data.punches)) {
-                    punches = data.punches;
-                    window.smartPunchesList = punches;
-                    localStorage.setItem('erp_smart_punches_db', JSON.stringify(punches));
-                }
+            const data = await resp.json();
+            if (!resp.ok || !data.success || !Array.isArray(data.punches)) {
+                throw new Error(data.message || 'تعذر تحميل سجل البصمات من الخادم.');
             }
+            punches = data.punches;
+            window.smartPunchesList = punches;
         } catch (e) {
-            // في حالة العمل بدون سيرفر يتم استخدام التخزين المحلي
+            console.warn('[SmartPunchEngine] Server punch history unavailable; using legacy local cache.', e);
             punches = getSmartPunchesDb();
+            if (typeof showToast === 'function') {
+                showToast('تعذر تحميل سجل البصمات الكامل من الخادم؛ البيانات المحلية قد تكون قديمة أو ناقصة.', 'error');
+            }
         }
         if (typeof onComplete === 'function') onComplete(punches);
         return punches;
@@ -482,4 +483,3 @@
     window.checkCycleBiometricMissingPunches = checkCycleBiometricMissingPunches;
     window.recordPayrollCalculationAudit = recordPayrollCalculationAudit;
     window.getPayrollCalculationAuditLog = getPayrollCalculationAuditLog;
-

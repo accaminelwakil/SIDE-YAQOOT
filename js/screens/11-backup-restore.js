@@ -225,10 +225,34 @@
         reader.readAsText(file);
     }
 
-    function confirmAndExecuteRestore() {
+    async function confirmAndExecuteRestore() {
         if (!pendingBackupDataToRestore) {
             alert('يرجى اختيار ملف نسخة احتياطية أولاً!');
             return;
+        }
+
+        const hasLeavesBackup = Object.prototype.hasOwnProperty.call(pendingBackupDataToRestore, 'leavesPermissionsDb');
+        if (hasLeavesBackup && !Array.isArray(pendingBackupDataToRestore.leavesPermissionsDb)) {
+            alert('بيانات الإجازات والأذونات داخل النسخة الاحتياطية غير صالحة. لم تُستكمل الاستعادة.');
+            return;
+        }
+        if (hasLeavesBackup) {
+            try {
+                const response = await window.authenticatedFetch('/api/leaves-permissions', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ items: pendingBackupDataToRestore.leavesPermissionsDb })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'تعذر استعادة طلبات الإجازات والأذونات.');
+                }
+                leavesPermissionsDb = pendingBackupDataToRestore.leavesPermissionsDb;
+                localStorage.removeItem('erp_leaves_permissions_db');
+            } catch (error) {
+                alert(`تعذرت استعادة طلبات الإجازات والأذونات: ${error.message}\nلم تُستكمل الاستعادة.`);
+                return;
+            }
         }
 
         if (pendingBackupDataToRestore.employees) {
@@ -261,11 +285,6 @@
         if (pendingBackupDataToRestore.usersDb) {
             usersDb = pendingBackupDataToRestore.usersDb;
             localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-        }
-
-        if (pendingBackupDataToRestore.leavesPermissionsDb) {
-            if (typeof leavesPermissionsDb !== 'undefined') leavesPermissionsDb = pendingBackupDataToRestore.leavesPermissionsDb;
-            localStorage.setItem('erp_leaves_permissions_db', JSON.stringify(pendingBackupDataToRestore.leavesPermissionsDb));
         }
 
         if (pendingBackupDataToRestore.notificationsDb) {
@@ -311,7 +330,7 @@
     }
 
     // ── مسح وتصفير كافة البيانات المسجلة بالكامل (البرنامج فارغ تماماً) ──
-    function clearAllSystemDataCompletelyPrompt() {
+    async function clearAllSystemDataCompletelyPrompt() {
         const conf = prompt(
             '⚠️ تحذير شديد ونهائي ⚠️\n' +
             'سيتم حذف وتصفير جميع بيانات البرنامج بالكامل:\n' +
@@ -328,6 +347,17 @@
             if (conf !== null) {
                 alert('❌ تم إلغاء العملية، لم يتم مسح أي بيانات نظراً لعدم كتابة كلمة التأكيد بشكل صحيح.');
             }
+            return;
+        }
+
+        try {
+            const response = await window.authenticatedFetch('/api/leaves-permissions', { method: 'DELETE' });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'تعذر حذف طلبات الإجازات والأذونات.');
+            }
+        } catch (error) {
+            alert(`تعذر حذف بيانات الإجازات والأذونات على الخادم: ${error.message}\nلم يتم مسح البيانات المحلية.`);
             return;
         }
 
@@ -358,7 +388,7 @@
         localStorage.setItem('erp_attendance', JSON.stringify([]));
         localStorage.setItem('erp_salary_adjustments_db', JSON.stringify({}));
         localStorage.setItem('erp_saved_payroll_cycles_db', JSON.stringify({}));
-        localStorage.setItem('erp_leaves_permissions_db', JSON.stringify([]));
+        localStorage.removeItem('erp_leaves_permissions_db');
         localStorage.setItem('erp_notifications_db', JSON.stringify([]));
         localStorage.setItem('erp_smart_punches_db', JSON.stringify([]));
         localStorage.setItem('erp_payroll_delivery_db', JSON.stringify({}));
@@ -371,7 +401,6 @@
                 pushSingleCollectionToFirebase('employees', []);
                 pushSingleCollectionToFirebase('attendance', []);
                 pushSingleCollectionToFirebase('salaryAdjustments', {});
-                pushSingleCollectionToFirebase('leavesPermissions', []);
                 pushSingleCollectionToFirebase('users', usersDb);
             } catch(e) {}
         }
@@ -417,27 +446,7 @@
     }
 
     function factoryResetPrompt() {
-        const conf = prompt('⚠️ تحذير: سيتم استرجاع بيانات العيادات الافتراضية (34 موظف)!\nللتأكيد، اكتب كلمة "تأكيد":');
-        if (conf === 'تأكيد') {
-            employees = INITIAL_EMPLOYEES;
-            localStorage.setItem('erp_employees_db', JSON.stringify(employees));
-            localStorage.setItem('erp_employees', JSON.stringify(employees));
-            attendanceRecords = [];
-            salaryAdjustmentsDb = {};
-            usersDb = DEFAULT_USERS;
-            localStorage.setItem('erp_users_db', JSON.stringify(usersDb));
-            currentUser = usersDb[0];
-            localStorage.setItem('erp_current_user', JSON.stringify(currentUser));
-
-            updateAllDeptDropdownsAndFilters();
-            populateAllEmployeeDropdowns();
-            renderEmployeesTable();
-            onShiftDateChanged();
-            renderWelcomeDashboard();
-            initAuthSystem();
-            alert('تمت استعادة البيانات الافتراضية بنجاح!');
-            window.location.reload();
-        }
+        alert('استعادة بيانات الموظفين الافتراضية لم تعد متاحة لأن بياناتهم لا تُضمّن في ملفات الواجهة. لم يتم مسح أي بيانات. لاستعادة النظام، استخدم نسخة احتياطية موثوقة.');
     }
 
     // إتاحة الدوال عامة
