@@ -312,33 +312,39 @@
 
             <div class="kpi-grid">
                 <div class="kpi-card card-blue">
+                    <h4>👥 الحضور اليوم</h4>
+                    <div class="val" style="color:var(--accent);" id="dash-today-attendance-count">0 موظف</div>
+                    <div class="sub-text" id="dash-today-attendance-names" style="max-height:4.5em; overflow-y:auto; line-height:1.6;">لا يوجد حضور مسجل اليوم</div>
+                </div>
+
+                <div class="kpi-card card-blue">
                     <h4>👥 عدد الموظفين</h4>
                     <div class="val" style="color:var(--accent);" id="dash-emp-count">0 موظف</div>
                     <div class="sub-text">إجمالي الموظفين المكودين بالعيادات</div>
                 </div>
 
                 <div class="kpi-card card-purple">
-                    <h4>📅 راتب الشهر الحالي</h4>
+                    <h4>📅 صافي راتب الشهر قبل السلف</h4>
                     <div class="val" style="color:var(--purple);" id="dash-month-salary">0.00 ج.م</div>
-                    <div class="sub-text" id="dash-month-label">حسب تاريخ شيفتات الشهر الجاري</div>
+                    <div class="sub-text" id="dash-month-label">من مسير الرواتب قبل خصم السلف</div>
                 </div>
 
                 <div class="kpi-card card-orange">
-                    <h4>📈 إجمالي رواتب العام</h4>
+                    <h4>📈 إجمالي صافي الرواتب قبل السلف</h4>
                     <div class="val" style="color:var(--warning);" id="dash-year-salary">0.00 ج.م</div>
-                    <div class="sub-text" id="dash-year-label">مستحقات السنة الحالية بالكامل</div>
+                    <div class="sub-text" id="dash-year-label">من مسير الرواتب قبل خصم السلف</div>
                 </div>
 
                 <div class="kpi-card card-green">
                     <h4>✔ المسدد من الرواتب خلال العام</h4>
                     <div class="val" style="color:var(--success);" id="dash-year-paid">0.00 ج.م</div>
-                    <div class="sub-text">المبالغ التي تم صرفها للموظفين</div>
+                    <div class="sub-text">المبالغ المصروفة فعلياً بعد خصم أقساط السلف</div>
                 </div>
 
                 <div class="kpi-card card-red">
                     <h4>⏳ صافي المستحق (المتبقي)</h4>
                     <div class="val" style="color:var(--danger);" id="dash-net-due">0.00 ج.م</div>
-                    <div class="sub-text">مستحقات معلقة لم تُسلّم بعد</div>
+                    <div class="sub-text">المتبقي من صافي المستحق بعد خصم السلف</div>
                 </div>
             </div>
 
@@ -371,7 +377,7 @@
                     <!-- شريط إحصائيات ومؤشرات فترة الراتب المختارة -->
                     <div id="chart-period-summary-bar" style="display:flex; gap:10px; margin: 4px 0 14px 0; flex-wrap:wrap;">
                         <div class="period-stat-item">
-                            <span>💳 إجمالي رواتب الفترة:</span>
+                            <span>💳 صافي الرواتب قبل خصم السلف:</span>
                             <strong id="stat-period-total" style="color:#059669;">0.00 ج.م</strong>
                         </div>
                         <div class="period-stat-item">

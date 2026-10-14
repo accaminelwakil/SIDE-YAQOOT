@@ -2,6 +2,109 @@
     let currentSalaryChartMode = 'months'; // 'months' أو 'employees'
     let currentSalaryPeriodOffset = 0; // 0 = الفترة الحالية، -1 = السابقة، +1 = التالية
     let salaryPeriodHoverBars = []; // لحساب إحداثيات الأعمدة وعرض الـ tooltip التفاعلي
+    let dashboardPunchCacheDate = '';
+    let dashboardPunchCache = null;
+    let dashboardPunchRequestDate = '';
+    let dashboardPunchRequest = null;
+
+    function localDateKey(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    function renderDashboardAttendanceCard(today, punches = [], errorMessage = '') {
+        const countElement = document.getElementById('dash-today-attendance-count');
+        const namesElement = document.getElementById('dash-today-attendance-names');
+        if (!countElement || !namesElement) return;
+
+        const activeEmployees = Array.isArray(window.employees) ? window.employees : [];
+        const employeesById = new Map(activeEmployees.map(employee => [String(employee.id), employee]));
+        const presentEmployees = new Map();
+        const attendance = Array.isArray(window.attendanceRecords) ? window.attendanceRecords : [];
+
+        attendance.forEach(record => {
+            if (!record || String(record.date || '').replace(/\//g, '-') !== today) return;
+            if (!(record.timeIn || Number(record.hours) > 0 || record.source === 'attendance_punch')) return;
+            const employee = employeesById.get(String(record.empId));
+            if (employee && employee.status === 'انتهت خدمته') return;
+            const name = record.name || employee?.name;
+            if (name) presentEmployees.set(String(record.empId || name), name);
+        });
+
+        punches.forEach(punch => {
+            if (!punch || punch.type !== 'in') return;
+            const status = String(punch.status || '').toUpperCase();
+            if (status && !['ACCEPTED', 'MANUAL_ACCEPTED'].includes(status)) return;
+            const employee = employeesById.get(String(punch.empId));
+            if (employee && employee.status === 'انتهت خدمته') return;
+            const name = punch.empName || employee?.name;
+            if (name) presentEmployees.set(String(punch.empId || name), name);
+        });
+
+        const names = Array.from(presentEmployees.values()).sort((left, right) => left.localeCompare(right, 'ar'));
+        countElement.textContent = `${names.length.toLocaleString('ar-EG')} موظف`;
+        namesElement.textContent = names.length
+            ? names.join('، ')
+            : (errorMessage ? 'تعذر تحميل حركات بصمة اليوم' : 'لا يوجد حضور مسجل اليوم');
+        if (errorMessage && names.length) {
+            namesElement.title = errorMessage;
+        } else {
+            namesElement.removeAttribute('title');
+        }
+    }
+
+    function refreshDashboardAttendanceCard() {
+        const today = localDateKey(new Date());
+        renderDashboardAttendanceCard(today);
+        if (!window.currentUser || typeof window.authenticatedFetch !== 'function') return;
+        if (dashboardPunchCacheDate === today && Array.isArray(dashboardPunchCache)) {
+            renderDashboardAttendanceCard(today, dashboardPunchCache);
+            return;
+        }
+        if (dashboardPunchRequest && dashboardPunchRequestDate === today) return;
+
+        dashboardPunchRequestDate = today;
+        dashboardPunchRequest = (async () => {
+            const punches = [];
+            let cursor = null;
+            let hasMore = true;
+            while (hasMore) {
+                const params = new URLSearchParams({ startDate: today, endDate: today, limit: '500' });
+                if (cursor) params.set('cursor', cursor);
+                const response = await window.authenticatedFetch(`/api/attendance/punches?${params}`);
+                const result = await response.json();
+                if (!response.ok || !result.success || !Array.isArray(result.punches)) {
+                    throw new Error(result.message || 'تعذر تحميل حركات حضور اليوم.');
+                }
+                punches.push(...result.punches);
+                hasMore = result.hasMore === true;
+                cursor = result.nextCursor || null;
+                if (hasMore && !cursor) throw new Error('تعذر إكمال تحميل حركات حضور اليوم.');
+            }
+            return punches;
+        })();
+
+        dashboardPunchRequest.then(punches => {
+            dashboardPunchCacheDate = today;
+            dashboardPunchCache = punches;
+            if (localDateKey(new Date()) === today) renderDashboardAttendanceCard(today, punches);
+        }).catch(error => {
+            if (localDateKey(new Date()) === today) {
+                renderDashboardAttendanceCard(today, [], error.message);
+            }
+            console.error('Dashboard attendance names could not be loaded:', error);
+        }).finally(() => {
+            dashboardPunchRequest = null;
+            dashboardPunchRequestDate = '';
+        });
+    }
+
+    window.addEventListener('sidi-yaqoot-attendance-updated', () => {
+        dashboardPunchCacheDate = '';
+        dashboardPunchCache = null;
+        if (document.getElementById('screen-welcome')?.classList.contains('active')) {
+            refreshDashboardAttendanceCard();
+        }
+    });
 
     function renderWelcomeDashboard() {
         const now = new Date();
@@ -17,6 +120,7 @@
         if (empCountEl) {
             empCountEl.innerText = `${activeEmployees.length} موظف`;
         }
+        refreshDashboardAttendanceCard();
 
         const allAtt = (typeof attendanceRecords !== 'undefined' && Array.isArray(attendanceRecords))
             ? attendanceRecords
@@ -29,7 +133,7 @@
         if (typeof calculateEmployeePayslipData === 'function') {
             activeEmployees.forEach(emp => {
                 const pData = calculateEmployeePayslipData(emp, curPeriod.startStr, curPeriod.endStr);
-                periodSalary += (pData.finalNet || 0);
+                periodSalary += (Number(pData.finalNet) || 0) + (Number(pData.advVal) || 0);
             });
         } else {
             const periodRecords = allAtt.filter(r => {
@@ -108,6 +212,7 @@
         }
 
         let yearSalary = 0;
+        let yearActualNetPayable = 0;
         let yearPaid = 0;
 
         if (registeredCycles.size > 0 && typeof calculateEmployeePayslipData === 'function') {
@@ -115,7 +220,8 @@
                 activeEmployees.forEach(emp => {
                     const pData = calculateEmployeePayslipData(emp, cycle.start, cycle.end);
                     const net = pData.finalNet || 0;
-                    yearSalary += net;
+                    yearSalary += (Number(net) || 0) + (Number(pData.advVal) || 0);
+                    yearActualNetPayable += Number(net) || 0;
 
                     // احتساب المسدد والمنصرف فعلياً عن تلك الدورة
                     const delivKey = `${cycle.start}_${cycle.end}_${emp.id}`;
@@ -147,6 +253,7 @@
                 const rt = parseFloat(r.rate) || 0;
                 return sum + (hrs * rt);
             }, 0);
+            yearActualNetPayable = yearSalary;
             yearPaid = currentYearRecords.filter(r => r && r.isPaid).reduce((sum, r) => {
                 const w = parseFloat(r.wage);
                 if (!isNaN(w) && isFinite(w) && w > 0) return sum + w;
@@ -164,8 +271,8 @@
         if (yearLblEl) {
             const count = registeredCycles.size;
             yearLblEl.innerText = count > 0 
-                ? `صافي مستحق ${count} فترة مسجلة لسنة ${currentYear}` 
-                : `صافي مستحقات فترات سنة ${currentYear}`;
+                ? `صافي ${count} فترة مسجلة قبل خصم السلف لسنة ${currentYear}` 
+                : `صافي الرواتب قبل خصم السلف لسنة ${currentYear}`;
         }
 
         const yearPaidEl = document.getElementById('dash-year-paid');
@@ -173,7 +280,7 @@
             yearPaidEl.innerText = `${yearPaid.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م`;
         }
 
-        const netDue = Math.max(0, yearSalary - yearPaid);
+        const netDue = Math.max(0, yearActualNetPayable - yearPaid);
         const netDueEl = document.getElementById('dash-net-due');
         if (netDueEl) {
             netDueEl.innerText = `${netDue.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م`;
@@ -256,18 +363,27 @@
             ? employees.filter(e => e && e.status !== 'انتهت خدمته')
             : [];
 
-        // ترتيب الموظفين بحسب الراتب تنازلياً لعرض مقارنة واضحة لأعلى وأهم الرواتب
-        const sortedEmps = activeEmps.slice().sort((a, b) => {
-            const salA = parseFloat(a.basicSalary) || 0;
-            const salB = parseFloat(b.basicSalary) || 0;
-            return salB - salA;
+        const period = getSalaryPeriodInfo(0);
+        const employeesWithNet = activeEmps.map(employee => {
+            const payrollData = typeof calculateEmployeePayslipData === 'function'
+                ? calculateEmployeePayslipData(employee, period.startStr, period.endStr)
+                : null;
+            return {
+                employee,
+                netSalary: payrollData
+                    ? (Number(payrollData.finalNet) || 0) + (Number(payrollData.advVal) || 0)
+                    : (Number(employee.basicSalary) || 0)
+            };
         });
+        const sortedEmps = employeesWithNet.sort((left, right) => right.netSalary - left.netSalary);
 
         const displayEmps = sortedEmps.slice(0, 16);
-        const labels = displayEmps.map(e => e.name ? e.name.split(' ').slice(0, 2).join(' ') : String(e.id));
-        const data = displayEmps.map(e => parseFloat(e.basicSalary) || 0);
+        const labels = displayEmps.map(item => item.employee.name
+            ? item.employee.name.split(' ').slice(0, 2).join(' ')
+            : String(item.employee.id));
+        const data = displayEmps.map(item => item.netSalary);
 
-        drawBarChart(ctx, canvas, labels, data, '#059669', 'ج.م', displayEmps.length > 10);
+        drawBarChart(ctx, canvas, labels, data, '#059669', 'صافي ج.م', displayEmps.length > 10);
     }
 
     function drawChartEmployeesByMonth(year) {
@@ -470,6 +586,14 @@
         let totalPeriodShifts = 0;
         let maxWage = 0;
         let maxWageDay = null;
+        const periodPayrollNet = typeof calculateEmployeePayslipData === 'function'
+            ? (Array.isArray(window.employees) ? window.employees : [])
+                .filter(employee => employee && employee.status !== 'انتهت خدمته')
+                .reduce((sum, employee) => {
+                    const payrollData = calculateEmployeePayslipData(employee, periodInfo.startStr, periodInfo.endStr);
+                    return sum + (Number(payrollData.finalNet) || 0) + (Number(payrollData.advVal) || 0);
+                }, 0)
+            : null;
 
         periodInfo.days.forEach(dayItem => {
             const dayRecords = allAtt.filter(r => {
@@ -512,10 +636,11 @@
 
         // تحديث بطاقات الإحصائيات الذكية
         const activeDaysCount = data.filter(w => w > 0).length;
-        const avgDaily = activeDaysCount > 0 ? (totalPeriodSalary / activeDaysCount) : 0;
+        const statSalary = periodPayrollNet === null ? totalPeriodSalary : periodPayrollNet;
+        const avgDaily = activeDaysCount > 0 ? (statSalary / activeDaysCount) : 0;
 
         const statTotalEl = document.getElementById('stat-period-total');
-        if (statTotalEl) statTotalEl.innerText = `${totalPeriodSalary.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م`;
+        if (statTotalEl) statTotalEl.innerText = `${statSalary.toLocaleString('ar-EG', {minimumFractionDigits: 2})} ج.م`;
 
         const statShiftsEl = document.getElementById('stat-period-shifts');
         if (statShiftsEl) statShiftsEl.innerText = `${totalPeriodShifts.toLocaleString('ar-EG')} شيفت`;
@@ -777,22 +902,33 @@
             const cycleStart = `${prevY}-${String(prevM).padStart(2, '0')}-25`;
             const cycleEnd = `${year}-${String(m).padStart(2, '0')}-24`;
 
-            let mSalary = allAtt
-                .filter(r => {
-                    if (!r || !r.date) return false;
-                    const dClean = String(r.date).trim().replace(/\//g, '-');
-                    return (dClean >= cycleStart && dClean <= cycleEnd);
-                })
-                .reduce((sum, r) => {
-                    const w = parseFloat(r.wage);
-                    if (!isNaN(w) && isFinite(w) && w > 0) return sum + w;
-                    const hrs = parseFloat(r.hours) || 0;
-                    const rt = parseFloat(r.rate) || 0;
-                    return sum + (hrs * rt);
+            let mSalary = 0;
+            if (typeof calculateEmployeePayslipData === 'function') {
+                const activeEmployees = (typeof employees !== 'undefined' && Array.isArray(employees))
+                    ? employees.filter(employee => employee && employee.status !== 'انتهت خدمته')
+                    : [];
+                mSalary = activeEmployees.reduce((sum, employee) => {
+                    const payrollData = calculateEmployeePayslipData(employee, cycleStart, cycleEnd);
+                    return sum + (Number(payrollData.finalNet) || 0) + (Number(payrollData.advVal) || 0);
                 }, 0);
+            } else {
+                mSalary = allAtt
+                    .filter(r => {
+                        if (!r || !r.date) return false;
+                        const dClean = String(r.date).trim().replace(/\//g, '-');
+                        return (dClean >= cycleStart && dClean <= cycleEnd);
+                    })
+                    .reduce((sum, r) => {
+                        const w = parseFloat(r.wage);
+                        if (!isNaN(w) && isFinite(w) && w > 0) return sum + w;
+                        const hrs = parseFloat(r.hours) || 0;
+                        const rt = parseFloat(r.rate) || 0;
+                        return sum + (hrs * rt);
+                    }, 0);
+            }
 
             // في حال عدم وجود سجلات بالنطاق الدقيق، يتم فحص الترقيم الشهري القديم لضمان التوافق
-            if (mSalary === 0) {
+            if (mSalary === 0 && typeof calculateEmployeePayslipData !== 'function') {
                 const mPrefix = `${year}-${String(m).padStart(2, '0')}`;
                 mSalary = allAtt
                     .filter(r => {
@@ -810,7 +946,8 @@
             }
 
             // في حال عدم تسجيل شيفتات بعد في الدورة الحالية، يتم عرض إجمالي الرواتب الأساسية المقررة كتقدير واقعي
-            if (mSalary === 0 && year === curY && m === curM && allAtt.length === 0) {
+            if (mSalary === 0 && typeof calculateEmployeePayslipData !== 'function' &&
+                year === curY && m === curM && allAtt.length === 0) {
                 mSalary = activeBasicTotal;
             }
 

@@ -327,6 +327,7 @@
         if (typeof calculateRowHours === 'function') calculateRowHours(row);
         localStorage.setItem(`erp_daily_draft_${punch.date}`, JSON.stringify(currentDailyAttendance));
         if (typeof renderDailyAttendanceTable === 'function') renderDailyAttendanceTable();
+        window.dispatchEvent(new Event('sidi-yaqoot-attendance-updated'));
     }
 
     async function openPunchesLogModal() {

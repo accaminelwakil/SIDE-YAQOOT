@@ -178,14 +178,14 @@
 
     function getPayrollCalculationModePreference() {
         try {
-            if (localStorage.getItem('erp_payroll_calc_mode_migration') !== 'face-default-v1') {
-                localStorage.setItem('erp_payroll_calc_mode', 'punch');
-                localStorage.setItem('erp_payroll_calc_mode_migration', 'face-default-v1');
+            if (localStorage.getItem('erp_payroll_calc_mode_migration') !== 'manual-default-v2') {
+                localStorage.setItem('erp_payroll_calc_mode', 'manual');
+                localStorage.setItem('erp_payroll_calc_mode_migration', 'manual-default-v2');
             }
-            return localStorage.getItem('erp_payroll_calc_mode') === 'manual' ? 'manual' : 'punch';
+            return localStorage.getItem('erp_payroll_calc_mode') === 'punch' ? 'punch' : 'manual';
         } catch (error) {
             console.warn('[Payroll] Could not migrate or read the calculation mode preference.', error);
-            return 'punch';
+            return 'manual';
         }
     }
 
